@@ -3211,7 +3211,7 @@ static u8 save_if_interesting(char** argv, void* mem, u32 len, u8 fault) {
   if (fault == crash_mode) {
 
     /* @RB@ in shadow mode, don't increment hit bits*/
-    if (!shadow_mode) increment_hit_bits();	
+    increment_hit_bits();	
 
     /* Keep only if there are new bits in the map, add to queue for
        future fuzzing, etc. */
