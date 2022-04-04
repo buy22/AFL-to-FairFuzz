@@ -151,7 +151,7 @@ static s32 forksrv_pid,               /* PID of the fork server           */
            out_dir_fd = -1;           /* FD of the lock file              */
 
 EXP_ST u8* trace_bits;                /* SHM with instrumentation bitmap  */
-
+static u64 hit_bits[MAP_SIZE];        /* @RB@ Hits to every basic block transition */
 EXP_ST u8  virgin_bits[MAP_SIZE],     /* Regions yet untouched by fuzzing */
            virgin_tmout[MAP_SIZE],    /* Bits we haven't seen in tmouts   */
            virgin_crash[MAP_SIZE];    /* Bits we haven't seen in crashes  */
@@ -264,6 +264,7 @@ struct queue_entry {
   u8* trace_mini;                     /* Trace bytes, if kept             */
   u32 tc_ref;                         /* Trace bytes ref count            */
 
+  u8* fuzzed_branches;                /* @RB@ which branches have been done */
   struct queue_entry *next,           /* Next element, if any             */
                      *next_100;       /* 100 elements ahead               */
 
@@ -338,7 +339,18 @@ enum {
   /* 05 */ FAULT_NOBITS
 };
 
-
+/* at the end of execution, dump the number of inputs hitting
+   each branch to log */
+static void dump_to_logs() {
+  s32 branch_hit_fd = -1;
+  u8* fn = alloc_printf("%s/branch-hits.bin", out_dir);
+  unlink(fn); /* Ignore errors */
+  branch_hit_fd = open(fn, O_CREAT | O_WRONLY | O_TRUNC, 0600);
+  if (branch_hit_fd < 0) PFATAL("Unable to create '%s'", fn);
+  ck_write(branch_hit_fd, hit_bits, sizeof(u64) * MAP_SIZE, fn);
+  ck_free(fn);
+  close(branch_hit_fd);
+}
 /* Get unix time in milliseconds */
 
 static u64 get_cur_time(void) {
@@ -800,6 +812,21 @@ static void mark_as_redundant(struct queue_entry* q, u8 state) {
 
 }
 
+// when resuming re-increment hit bits
+static void init_hit_bits() {
+  s32 branch_hit_fd = -1;
+
+  ACTF("Attempting to init hit bits...");
+  u8* fn = alloc_printf("%s/branch-hits.bin", out_dir);
+
+  branch_hit_fd = open(fn, O_RDONLY);
+  if (branch_hit_fd < 0) PFATAL("Unable to open '%s'", fn);
+
+  ck_read(branch_hit_fd, hit_bits, sizeof(u64) * MAP_SIZE, fn);
+
+  close(branch_hit_fd);
+  OKF("Init'ed hit_bits.");
+}
 
 /* Append new test case to the queue. */
 
@@ -3158,11 +3185,23 @@ static void write_crash_readme(void) {
 }
 
 
+/* increment hit bits by 1 for every element of trace_bits that has been hit.
+ effectively counts that one input has hit each element of trace_bits */
+static void increment_hit_bits(){
+  for (int i = 0; i < MAP_SIZE; i++){
+    if ((trace_bits[i] > 0) && (hit_bits[i] < ULONG_MAX))
+      hit_bits[i]++;
+  }
+}
+
 /* Check if the result of an execve() during routine fuzzing is interesting,
    save or queue the input test case for further analysis if so. Returns 1 if
    entry is saved, 0 otherwise. */
 
 static u8 save_if_interesting(char** argv, void* mem, u32 len, u8 fault) {
+
+  // @RB@TODO: fix this kludge
+  if (len == 0) return 0;
 
   u8  *fn = "";
   u8  hnb;
@@ -3170,6 +3209,9 @@ static u8 save_if_interesting(char** argv, void* mem, u32 len, u8 fault) {
   u8  keeping = 0, res;
 
   if (fault == crash_mode) {
+
+    /* @RB@ in shadow mode, don't increment hit bits*/
+    if (!shadow_mode) increment_hit_bits();	
 
     /* Keep only if there are new bits in the map, add to queue for
        future fuzzing, etc. */
@@ -8046,6 +8088,11 @@ int main(int argc, char** argv) {
   setup_shm();
   init_count_class16();
 
+  memset(hit_bits, 0, sizeof(hit_bits));
+  if (in_place_resume) {
+    // vanilla_afl = 0;
+    init_hit_bits();
+  }
   setup_dirs_fds();
   read_testcases();
   load_auto();
@@ -8182,6 +8229,7 @@ stop_fuzzing:
 
   }
 
+  dump_to_logs();
   fclose(plot_file);
   destroy_queue();
   destroy_extras();
