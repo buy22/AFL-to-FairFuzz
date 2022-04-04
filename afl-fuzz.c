@@ -343,7 +343,7 @@ enum {
    each branch to log */
 static void dump_to_logs() {
   s32 branch_hit_fd = -1;
-  u8* fn = alloc_printf("%s/branch-hits.bin", out_dir);
+  u8* fn = alloc_printf("%s/branch-hits.txt", out_dir);
   unlink(fn); /* Ignore errors */
   branch_hit_fd = open(fn, O_CREAT | O_WRONLY | O_TRUNC, 0600);
   if (branch_hit_fd < 0) PFATAL("Unable to create '%s'", fn);
