@@ -56,7 +56,9 @@
 #include <termios.h>
 #include <dlfcn.h>
 #include <sched.h>
-
+#include <stdbool.h>
+#include <stdarg.h>
+#include <limits.h>
 #include <sys/wait.h>
 #include <sys/time.h>
 #include <sys/shm.h>
