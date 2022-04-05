@@ -151,7 +151,7 @@ static s32 forksrv_pid,               /* PID of the fork server           */
            out_dir_fd = -1;           /* FD of the lock file              */
 
 EXP_ST u8* trace_bits;                /* SHM with instrumentation bitmap  */
-static s32 dump_index = 0;            /* @RB@ logging index for every 5 min */
+s32 dump_index = 0;                   /* @RB@ logging index for every 5 min */
 static u64 hit_bits[MAP_SIZE];        /* @RB@ Hits to every basic block transition */
 EXP_ST u8  virgin_bits[MAP_SIZE],     /* Regions yet untouched by fuzzing */
            virgin_tmout[MAP_SIZE],    /* Bits we haven't seen in tmouts   */
