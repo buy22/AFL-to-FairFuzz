@@ -3984,13 +3984,15 @@ static void show_stats(void) {
 
   cur_ms = get_cur_time();
 
-  OKF("Dump branch hits!\n");
-
-  if (cur_ms - last_ms > 5 * 60 * 1000) dump_hits();
 
   /* If not enough time has passed since last UI update, bail out. */
 
   if (cur_ms - last_ms < 1000 / UI_TARGET_HZ) return;
+
+  if (cur_ms - last_ms > 1 * 60 * 1000) {
+    SAYF("Dump branch hits!\n");
+    dump_hits();
+  }
 
   /* Check if we're past the 10 minute mark. */
 
