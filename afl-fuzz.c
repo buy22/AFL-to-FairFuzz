@@ -819,7 +819,7 @@ static void init_hit_bits() {
   u8* path = alloc_printf("%s/branch-hits.bin", out_dir);
   file = open(fn, O_RDONLY);
   if (file < 0) PFATAL("Unable to open '%s'", path);
-  ck_read(file, hit_bits, sizeof(u64) * MAP_SIZE, path)
+  ck_read(file, hit_bits, sizeof(u64) * MAP_SIZE, path);
   close(file);
   OKF("Loaded hit_bits.");
 }
