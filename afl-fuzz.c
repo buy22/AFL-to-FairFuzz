@@ -152,6 +152,8 @@ static s32 forksrv_pid,               /* PID of the fork server           */
 
 EXP_ST u8* trace_bits;                /* SHM with instrumentation bitmap  */
 s32 dump_index = 0;                   /* @RB@ logging index for every 5 min */
+u64 cur_ms_dump;
+u64 last_ms_dump = 0;
 static u64 hit_bits[MAP_SIZE];        /* @RB@ Hits to every basic block transition */
 EXP_ST u8  virgin_bits[MAP_SIZE],     /* Regions yet untouched by fuzzing */
            virgin_tmout[MAP_SIZE],    /* Bits we haven't seen in tmouts   */
@@ -346,6 +348,7 @@ static void dump_hits() {
   s32 file = -1;
   u8* path = alloc_printf("%s/branch-hits%d.bin", out_dir, dump_index);
   dump_index++;
+  unlink(path);
   file = open(path, O_CREAT | O_WRONLY | O_TRUNC, 0600);
   if (file < 0) PFATAL("Unable to create '%s'", path);
   ck_write(file, hit_bits, sizeof(u64) * MAP_SIZE, path);
@@ -8124,6 +8127,12 @@ int main(int argc, char** argv) {
   write_stats_file(0, 0, 0);
   save_auto();
 
+  cur_ms_dump = get_cur_time();
+  if (cur_ms_dump - last_ms_dump > 1 * 60 * 1000) {
+    dump_hits();
+    last_ms_dump = cur_ms_dump;
+  }
+
   if (stop_soon) goto stop_fuzzing;
 
   /* Woop woop woop */
@@ -8134,19 +8143,12 @@ int main(int argc, char** argv) {
     if (stop_soon) goto stop_fuzzing;
   }
 
-  u64 cur_ms_dump;
-  u64 last_ms_dump = 0;
+  
   while (1) {
 
     u8 skipped_fuzz;
 
     cull_queue();
-
-    cur_ms_dump = get_cur_time();
-    if (cur_ms_dump - last_ms_dump > 1 * 60 * 1000) {
-      dump_hits();
-      last_ms_dump = cur_ms_dump;
-    }
 
     if (!queue_cur) {
 
