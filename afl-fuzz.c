@@ -8087,7 +8087,7 @@ int main(int argc, char** argv) {
 
   memset(hit_bits, 0, sizeof(hit_bits));
   if (in_place_resume) {
-    vanilla_afl = 0;
+    // vanilla_afl = 0;
     init_hit_bits();
   }
   setup_dirs_fds();
