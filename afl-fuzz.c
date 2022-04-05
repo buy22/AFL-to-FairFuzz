@@ -3989,11 +3989,6 @@ static void show_stats(void) {
 
   if (cur_ms - last_ms < 1000 / UI_TARGET_HZ) return;
 
-  if (cur_ms - last_ms > 1 * 60 * 1000) {
-    SAYF("Dump branch hits!\n");
-    dump_hits();
-  }
-
   /* Check if we're past the 10 minute mark. */
 
   if (cur_ms - start_time > 10 * 60 * 1000) run_over10m = 1;
@@ -8135,6 +8130,8 @@ int main(int argc, char** argv) {
     if (stop_soon) goto stop_fuzzing;
   }
 
+  u64 cur_ms_dump;
+  u64 last_ms_dump = 0;
   while (1) {
 
     u8 skipped_fuzz;
@@ -8156,6 +8153,12 @@ int main(int argc, char** argv) {
 
       show_stats();
 
+      cur_ms_dump = get_cur_time();
+      if (cur_ms_dump - last_ms_dump > 1 * 60 * 1000) {
+        dump_hits();
+        last_ms_dump = cur_ms_dump;
+      }
+      
       if (not_on_tty) {
         ACTF("Entering queue cycle %llu.", queue_cycle);
         fflush(stdout);
