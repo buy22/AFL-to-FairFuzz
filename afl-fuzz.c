@@ -151,6 +151,7 @@ static s32 forksrv_pid,               /* PID of the fork server           */
            out_dir_fd = -1;           /* FD of the lock file              */
 
 EXP_ST u8* trace_bits;                /* SHM with instrumentation bitmap  */
+static s32 dump_index = 0;            /* @RB@ logging index for every 5 min */
 static u64 hit_bits[MAP_SIZE];        /* @RB@ Hits to every basic block transition */
 EXP_ST u8  virgin_bits[MAP_SIZE],     /* Regions yet untouched by fuzzing */
            virgin_tmout[MAP_SIZE],    /* Bits we haven't seen in tmouts   */
@@ -341,15 +342,15 @@ enum {
 
 /* at the end of execution, dump the number of inputs hitting
    each branch to log */
-static void dump_to_logs() {
-  s32 branch_hit_fd = -1;
-  u8* fn = alloc_printf("%s/branch-hits.bin", out_dir);
-  unlink(fn); /* Ignore errors */
-  branch_hit_fd = open(fn, O_CREAT | O_WRONLY | O_TRUNC, 0600);
-  if (branch_hit_fd < 0) PFATAL("Unable to create '%s'", fn);
-  ck_write(branch_hit_fd, hit_bits, sizeof(u64) * MAP_SIZE, fn);
-  ck_free(fn);
-  close(branch_hit_fd);
+static void dump_hits() {
+  s32 file = -1;
+  u8* path = alloc_printf("%s/branch-hits%d.bin", out_dir, dump_index);
+  dump_index++;
+  file = open(fn, O_CREAT | O_WRONLY | O_TRUNC, 0600);
+  if (file < 0) PFATAL("Unable to create '%s'", path);
+  ck_write(file, hit_bits, sizeof(u64) * MAP_SIZE, path);
+  ck_free(path);
+  close(file);
 }
 /* Get unix time in milliseconds */
 
@@ -814,18 +815,13 @@ static void mark_as_redundant(struct queue_entry* q, u8 state) {
 
 // when resuming re-increment hit bits
 static void init_hit_bits() {
-  s32 branch_hit_fd = -1;
-
-  ACTF("Attempting to init hit bits...");
-  u8* fn = alloc_printf("%s/branch-hits.bin", out_dir);
-
-  branch_hit_fd = open(fn, O_RDONLY);
-  if (branch_hit_fd < 0) PFATAL("Unable to open '%s'", fn);
-
-  ck_read(branch_hit_fd, hit_bits, sizeof(u64) * MAP_SIZE, fn);
-
-  close(branch_hit_fd);
-  OKF("Init'ed hit_bits.");
+  s32 file = -1;
+  u8* path = alloc_printf("%s/branch-hits.bin", out_dir);
+  file = open(fn, O_RDONLY);
+  if (file < 0) PFATAL("Unable to open '%s'", path);
+  ck_read(file, hit_bits, sizeof(u64) * MAP_SIZE, path)
+  close(file);
+  OKF("Loaded hit_bits.");
 }
 
 /* Append new test case to the queue. */
@@ -3187,7 +3183,7 @@ static void write_crash_readme(void) {
 
 /* increment hit bits by 1 for every element of trace_bits that has been hit.
  effectively counts that one input has hit each element of trace_bits */
-static void increment_hit_bits(){
+static void count_hit_bits(){
   for (int i = 0; i < MAP_SIZE; i++){
     if ((trace_bits[i] > 0) && (hit_bits[i] < ULONG_MAX))
       hit_bits[i]++;
@@ -3211,7 +3207,7 @@ static u8 save_if_interesting(char** argv, void* mem, u32 len, u8 fault) {
   if (fault == crash_mode) {
 
     /* @RB@ in shadow mode, don't increment hit bits*/
-    increment_hit_bits();	
+    count_hit_bits();	
 
     /* Keep only if there are new bits in the map, add to queue for
        future fuzzing, etc. */
@@ -3987,6 +3983,8 @@ static void show_stats(void) {
   u8  tmp[256];
 
   cur_ms = get_cur_time();
+
+  if (cur_ms - last_ms > 5 * 60 * 1000) dump_hits();
 
   /* If not enough time has passed since last UI update, bail out. */
 
@@ -8089,10 +8087,6 @@ int main(int argc, char** argv) {
   init_count_class16();
 
   memset(hit_bits, 0, sizeof(hit_bits));
-  if (in_place_resume) {
-    // vanilla_afl = 0;
-    init_hit_bits();
-  }
   setup_dirs_fds();
   read_testcases();
   load_auto();
@@ -8229,7 +8223,7 @@ stop_fuzzing:
 
   }
 
-  dump_to_logs();
+  dump_hits();
   fclose(plot_file);
   destroy_queue();
   destroy_extras();
