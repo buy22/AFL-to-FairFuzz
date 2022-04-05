@@ -8086,6 +8086,10 @@ int main(int argc, char** argv) {
   init_count_class16();
 
   memset(hit_bits, 0, sizeof(hit_bits));
+  if (in_place_resume) {
+    vanilla_afl = 0;
+    init_hit_bits();
+  }
   setup_dirs_fds();
   read_testcases();
   load_auto();
@@ -8138,6 +8142,12 @@ int main(int argc, char** argv) {
 
     cull_queue();
 
+    cur_ms_dump = get_cur_time();
+    if (cur_ms_dump - last_ms_dump > 1 * 60 * 1000) {
+      dump_hits();
+      last_ms_dump = cur_ms_dump;
+    }
+
     if (!queue_cur) {
 
       queue_cycle++;
@@ -8153,12 +8163,6 @@ int main(int argc, char** argv) {
 
       show_stats();
 
-      cur_ms_dump = get_cur_time();
-      if (cur_ms_dump - last_ms_dump > 1 * 60 * 1000) {
-        dump_hits();
-        last_ms_dump = cur_ms_dump;
-      }
-      
       if (not_on_tty) {
         ACTF("Entering queue cycle %llu.", queue_cycle);
         fflush(stdout);
