@@ -346,7 +346,7 @@ static void dump_hits() {
   s32 file = -1;
   u8* path = alloc_printf("%s/branch-hits%d.bin", out_dir, dump_index);
   dump_index++;
-  file = open(fn, O_CREAT | O_WRONLY | O_TRUNC, 0600);
+  file = open(path, O_CREAT | O_WRONLY | O_TRUNC, 0600);
   if (file < 0) PFATAL("Unable to create '%s'", path);
   ck_write(file, hit_bits, sizeof(u64) * MAP_SIZE, path);
   ck_free(path);
@@ -817,7 +817,7 @@ static void mark_as_redundant(struct queue_entry* q, u8 state) {
 static void init_hit_bits() {
   s32 file = -1;
   u8* path = alloc_printf("%s/branch-hits.bin", out_dir);
-  file = open(fn, O_RDONLY);
+  file = open(path, O_RDONLY);
   if (file < 0) PFATAL("Unable to open '%s'", path);
   ck_read(file, hit_bits, sizeof(u64) * MAP_SIZE, path);
   close(file);
