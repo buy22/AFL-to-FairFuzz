@@ -349,7 +349,7 @@ static void dump_hits() {
   if (file < 0) PFATAL("Unable to create '%s'", path);
   ck_write(file, hit_bits, sizeof(u64) * MAP_SIZE, path);
   ck_free(path);
-  close(file);
+  close(file); 
 }
 /* Get unix time in milliseconds */
 
