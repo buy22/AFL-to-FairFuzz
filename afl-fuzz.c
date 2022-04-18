@@ -292,6 +292,10 @@ static u32 a_extras_cnt;              /* Total number of tokens available */
 
 static u8* (*post_handler)(u8* buf, u32* len);
 
+static u32 vanilla_afl = 1000;
+static u32 rb_fuzzing = 0;
+static u32 total_branch_tries = 0;
+static u32 successful_branch_tries = 0;
 /* Interesting values, as per config.h */
 
 static s8  interesting_8[]  = { INTERESTING_8 };
@@ -826,6 +830,14 @@ static void mark_as_redundant(struct queue_entry* q, u8 state) {
   ck_free(fn);
 
 }
+
+
+/* return 0 if current trace bits hits branch with id branch_id,
+  0 otherwise */
+static int hits_branch(int branch_id){
+  return (trace_bits[branch_id] != 0);
+}
+
 
 /* get a random modifiable position (i.e. where branch_mask & mod_type) 
    for both overwriting and removal we want to make sure we are overwriting
@@ -4812,6 +4824,12 @@ EXP_ST u8 common_fuzz_stuff(char** argv, u8* out_buf, u32 len) {
 
   }
 
+  if (vanilla_afl) --vanilla_afl;
+
+  if (rb_fuzzing) {
+    total_branch_tries++;
+    if (hits_branch(rb_fuzzing - 1)) successful_branch_tries++;
+  }
   /* This handles FAULT_ERROR for us: */
 
   queued_discovered += save_if_interesting(argv, out_buf, len, fault);
@@ -6478,7 +6496,7 @@ havoc_stage:
             del_len = choose_block_len(temp_len - 1);
 
             del_from = pos_to_mutate(del_len*8, 2, temp_len, branch_mask, position_map);
-            if(mutate_pos == -1) break;
+            if(del_from == -1) break;
             memmove(out_buf + del_from, out_buf + del_from + del_len,
                     temp_len - del_from - del_len);
             // remove that data from the branch mask
@@ -6597,7 +6615,7 @@ havoc_stage:
               if (extra_len > temp_len) break;
 
               insert_at = pos_to_mutate(copy_len * 8, 1, temp_len, branch_mask, position_map);
-              if (copy_to == -1) break;
+              if (insert_at == -1) break;
               memcpy(out_buf + insert_at, a_extras[use_extra].data, extra_len);
 
             } else {
@@ -6814,6 +6832,16 @@ retry_splicing:
     out_buf = ck_alloc_nozero(len);
     memcpy(out_buf, in_buf, len);
 
+    // @RB@ handle the branch mask
+    position_map = ck_realloc(position_map, sizeof (u32) * (len + 1));
+    ck_free(orig_branch_mask);
+    orig_branch_mask = ck_alloc(len +1);
+    new_branch_mask = alloc_branch_mask(len + 1);
+    memcpy(new_branch_mask, branch_mask, MIN(split_at, temp_len + 1));
+    ck_free(branch_mask);
+    branch_mask = new_branch_mask;
+    memcpy (orig_branch_mask, branch_mask, len + 1);
+
     goto havoc_stage;
 
   }
@@ -6835,12 +6863,20 @@ abandon_entry:
     if (queue_cur->favored) pending_favored--;
   }
 
+  DEBUG1("%sIn havoc stage, %i of %i tries hit branch %i\n", shadow_prefix, successful_branch_tries, total_branch_tries, rb_fuzzing - 1);
+  successful_branch_tries = 0;
+  total_branch_tries = 0;
+  //DEBUG1("%shavoc stage: %i new coverage in %i total execs\n", shadow_prefix, queued_discovered-orig_queued_discovered, total_execs-orig_total_execs);
+  //DEBUG1("%shavoc stage: %i new branches in %i total execs\n", shadow_prefix, queued_with_cov-orig_queued_with_cov, total_execs-orig_total_execs);
+
   munmap(orig_in, queue_cur->len);
 
   if (in_buf != orig_in) ck_free(in_buf);
   ck_free(out_buf);
   ck_free(eff_map);
-
+  ck_free(branch_mask);
+  ck_free(orig_branch_mask);
+  ck_free(position_map);
   return ret_val;
 
 #undef FLIP_BIT
@@ -8216,9 +8252,10 @@ int main(int argc, char** argv) {
 
   memset(hit_bits, 0, sizeof(hit_bits));
   if (in_place_resume) {
-    // vanilla_afl = 0;
+    vanilla_afl = 0;
     init_hit_bits();
   }
+  
   setup_dirs_fds();
   read_testcases();
   load_auto();
