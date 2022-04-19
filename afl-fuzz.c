@@ -292,10 +292,19 @@ static u32 a_extras_cnt;              /* Total number of tokens available */
 
 static u8* (*post_handler)(u8* buf, u32* len);
 
+/* brach parameters */
 static u32 vanilla_afl = 1000;
 static u32 rb_fuzzing = 0;
+static u32 MAX_RARE_BRANCHES = 256;
+static int max_rare_branch_bits = 4;
 static u32 total_branch_tries = 0;
 static u32 successful_branch_tries = 0;
+static u8 use_branch_mask = 1;
+static int prev_cycle_branch_unchanged = 0;
+static int cycle_branch_unchanged = 0;
+static int bootstrap = 0;
+static u8 skip_deterministic_bootstrap = 0;
+
 /* Interesting values, as per config.h */
 
 static s8  interesting_8[]  = { INTERESTING_8 };
@@ -4824,7 +4833,7 @@ EXP_ST u8 common_fuzz_stuff(char** argv, u8* out_buf, u32 len) {
 
   }
 
-  if (vanilla_afl) --vanilla_afl;
+  if (vanilla_afl) vanilla_afl--;
 
   if (rb_fuzzing) {
     total_branch_tries++;
@@ -5162,6 +5171,8 @@ static u8 fuzz_one(char** argv) {
   u8 * branch_mask = 0;
   u8 * orig_branch_mask = 0;
   u32 * position_map = NULL;
+  u8 skip_deterministic = 0;
+  u8 skip_bitflip = 0;
 
 
 #ifdef IGNORE_FINDS
@@ -8001,10 +8012,17 @@ int main(int argc, char** argv) {
   gettimeofday(&tv, &tz);
   srandom(tv.tv_sec ^ tv.tv_usec ^ getpid());
 
-  while ((opt = getopt(argc, argv, "+i:o:f:m:b:t:T:dnCB:S:M:x:QV")) > 0)
+  while ((opt = getopt(argc, argv, "+bq:i:o:f:m:t:T:dnCB:S:M:x:Q")) > 0)
 
     switch (opt) {
 
+      case 'b': /* disable use of branch mask */
+        use_branch_mask = 0;
+        break;
+
+      case 'q': /* bootstrap queueing after being stuck */
+        bootstrap = strtol(optarg, 0, 10);
+        break;
       case 'i': /* input dir */
 
         if (in_dir) FATAL("Multiple -i options not supported");
@@ -8255,7 +8273,7 @@ int main(int argc, char** argv) {
     vanilla_afl = 0;
     init_hit_bits();
   }
-  
+
   setup_dirs_fds();
   read_testcases();
   load_auto();
