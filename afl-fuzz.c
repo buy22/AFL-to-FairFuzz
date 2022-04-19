@@ -265,6 +265,7 @@ struct queue_entry {
   u32 tc_ref;                         /* Trace bytes ref count            */
 
   u8* fuzzed_branches;                /* @RB@ which branches have been done */
+  
   struct queue_entry *next,           /* Next element, if any             */
                      *next_100;       /* 100 elements ahead               */
 
@@ -293,17 +294,21 @@ static u32 a_extras_cnt;              /* Total number of tokens available */
 static u8* (*post_handler)(u8* buf, u32* len);
 
 /* brach parameters */
-static u32 vanilla_afl = 1000;
+
+static u32 vanilla_afl = 1000; /* How many executions to conduct in vanilla AFL mode               */
 static u32 rb_fuzzing = 0;
 static u32 MAX_RARE_BRANCHES = 256;
 static int max_rare_branch_bits = 4;
 static u32 total_branch_tries = 0;
 static u32 successful_branch_tries = 0;
-static u8 use_branch_mask = 1;
+bool use_branch_mask = true;
 static int prev_cycle_branch_unchanged = 0;
 static int cycle_branch_unchanged = 0;
 static int bootstrap = 0;
 static u8 skip_deterministic_bootstrap = 0;
+static int * blacklist; 
+static int blacklist_size = 1024;
+static int blacklist_pos;
 
 /* Interesting values, as per config.h */
 
@@ -840,11 +845,124 @@ static void mark_as_redundant(struct queue_entry* q, u8 state) {
 
 }
 
+/* True if branch_ids contains branch_id*/
+static int contains_id(int branch_id, int* branch_ids){
+  for (int i = 0; branch_ids[i] != -1; i++){
+    if (branch_ids[i] == branch_id) return 1;
+	}
+  return 0; 
+}
+
+/* free the return pointer. */
+static int* get_lowest_hit_branch_ids(){
+  int * rare_branch_ids = ck_alloc(sizeof(int) * MAX_RARE_BRANCHES);
+  int lowest_hob = INT_MAX;
+  int ret_list_size = 0;
+
+  for (int i = 0; (i < MAP_SIZE) && (ret_list_size < MAX_RARE_BRANCHES - 1); i++){
+    // ignore unseen branches. sparse array -> unlikely 
+    if (unlikely(hit_bits[i] > 0)){
+      if (contains_id(i, blacklist)) continue;
+      unsigned int long cur_hits = hit_bits[i];
+      int highest_order_bit = 0;
+      while(cur_hits >>=1)
+          highest_order_bit++;
+      lowest_hob = highest_order_bit < lowest_hob ? highest_order_bit : lowest_hob;
+      if (highest_order_bit < rare_branch_exp){
+        // if we are an order of magnitude smaller, prioritize the
+        // rarer branches
+        if (highest_order_bit < rare_branch_exp - 1){
+          rare_branch_exp = highest_order_bit + 1;
+          // everything else that came before had way more hits
+          // than this one, so remove from list
+          ret_list_size = 0;
+        }
+        rare_branch_ids[ret_list_size] = i;
+        ret_list_size++;
+      }
+
+    }
+  }
+
+  if (ret_list_size == 0){
+    DEBUG1("Was returning list of size 0\n");
+    if (lowest_hob != INT_MAX) {
+      rare_branch_exp = lowest_hob + 1;
+      DEBUG1("Upped max exp to %i\n", rare_branch_exp);
+      ck_free(rare_branch_ids);
+      return get_lowest_hit_branch_ids();
+    }
+  }
+
+  rare_branch_ids[ret_list_size] = -1;
+  return rare_branch_ids;
+
+}
+
 
 /* return 0 if current trace bits hits branch with id branch_id,
   0 otherwise */
 static int hits_branch(int branch_id){
   return (trace_bits[branch_id] != 0);
+}
+
+// returns NULL if the trace bits does not hit a rare branch
+// else returns a list of all the rare branches hit
+// by the mini trace bits, in decreasing order of rarity
+static u32 * is_rare_hit(u8* trace_bits_mini){
+  int * rarest_branches = get_lowest_hit_branch_ids();
+  u32 * branch_ids = ck_alloc(sizeof(u32) * MAX_RARE_BRANCHES);
+  u32 * branch_cts = ck_alloc(sizeof(u32) * MAX_RARE_BRANCHES);
+  int min_hit_index = 0;
+
+  for (int i = 0; i < MAP_SIZE ; i ++){
+      if (unlikely (trace_bits_mini[i >> 3]  & (1 <<(i & 7)) )){
+        int cur_index = i;
+        int is_rare = contains_id(cur_index, rarest_branches);
+        if (is_rare) {
+          // at loop initialization, set min_branch_hit properly
+          if (!min_hit_index) {
+            branch_cts[min_hit_index] = hit_bits[cur_index];
+            branch_ids[min_hit_index] = cur_index + 1;
+          }
+          // in general just check if we're a smaller branch 
+          // than the previously found min
+          int j;
+          for (j = 0 ; j < min_hit_index; j++){
+            if (hit_bits[cur_index] <= branch_cts[j]){
+              memmove(branch_cts + j + 1, branch_cts + j, min_hit_index -j);
+              memmove(branch_ids + j + 1, branch_ids + j, min_hit_index -j);
+              branch_cts[j] = hit_bits[cur_index];
+              branch_ids[j] = cur_index + 1;
+            }
+          }
+          // append at end
+          if (j == min_hit_index){
+            branch_cts[j] = hit_bits[cur_index];
+            // + 1 so we can distinguish 0 from other cases
+            branch_ids[j] = cur_index + 1;
+
+          }
+          // this is only incremented when is_rare holds, which should
+          // only happen a max of MAX_RARE_BRANCHES -1 times -- the last
+          // time we will never reenter so this is always < MAX_RARE_BRANCHES
+          // at the top of the if statement
+          min_hit_index++;
+        }
+      }
+
+  }
+  ck_free(branch_cts);
+  ck_free(rarest_branches);
+  if (min_hit_index == 0){
+      ck_free(branch_ids);
+      branch_ids = NULL;
+  } else {
+    // 0 terminate the array
+    branch_ids[min_hit_index] = 0;
+  }
+  return branch_ids;
+
 }
 
 
@@ -5168,11 +5286,28 @@ static u8 fuzz_one(char** argv) {
   u32 a_len = 0;
 
   /* FairFuzz */
+
   u8 * branch_mask = 0;
   u8 * orig_branch_mask = 0;
   u32 * position_map = NULL;
-  u8 skip_deterministic = 0;
-  u8 skip_bitflip = 0;
+  u8 fairfuzz_skip_deterministic = 0;
+  u8 skip_simple_bitflip = 0;
+  u32 fairfuzz_queued_with_cov = queued_with_cov;
+  u32 fairfuzz_queued_discovered = queued_discovered;
+  u32 fairfuzz_total_execs = total_execs;
+
+  if (!vanilla_afl){
+    if (prev_cycle_branch_unchanged && bootstrap){
+      vanilla_afl = 1;
+      rb_fuzzing = 0;
+      if (bootstrap == 2) skip_deterministic_bootstrap = 1;
+    }
+  }
+
+ if (skip_deterministic) {
+  rb_skip_deterministic = 1;
+  skip_simple_bitflip = 1;
+ }
 
 
 #ifdef IGNORE_FINDS
@@ -5212,6 +5347,77 @@ static u8 fuzz_one(char** argv) {
   }
 
 #endif /* ^IGNORE_FINDS */
+
+  /* select inputs that are crucial to rare branches */
+  if (!vanilla_afl) {
+    skip_deterministic_bootstrap = 0;
+    u32 * min_branch_hits = is_rare_hit(queue_cur->trace_mini);
+
+    if (min_branch_hits == NULL){
+      // not a rare hit. don't fuzz.
+      return 1;
+    } else { 
+      int ii;
+      for (ii = 0; min_branch_hits[ii] != 0; ii++){
+        rb_fuzzing = min_branch_hits[ii];
+        if (rb_fuzzing){
+          int byte_offset = (rb_fuzzing - 1) >> 3;
+          int bit_offset = (rb_fuzzing - 1) & 7;
+
+          // skip deterministic if we have fuzzed this min branch
+          if (queue_cur->fuzzed_branches[byte_offset] & (1 << (bit_offset))){
+            // let's try the next one
+            continue;
+          } else {
+            for (int k = 0; k < MAP_SIZE >> 3; k ++){
+              if (queue_cur->fuzzed_branches[k] != 0){
+                DEBUG1("We fuzzed this guy already\n");
+                skip_simple_bitflip = 1;
+                break;
+              }
+            }
+            // indicate we have fuzzed this branch id
+            queue_cur->fuzzed_branches[byte_offset] |= (1 << (bit_offset)); 
+            // chose minimum
+            break;
+          }
+        } else break; 
+      }
+      // if we got to the end of min_branch_hits...
+      // it's either because we fuzzed all the things in min_branch_hits
+      // or because there was nothing. If there was nothing, 
+      // min_branch_hits[0] should be 0 
+      if (!rb_fuzzing || (min_branch_hits[ii] == 0)){
+        rb_fuzzing = min_branch_hits[0];
+        if (!rb_fuzzing) {
+          return 1;
+        }
+        DEBUG1("We fuzzed this guy already for real\n");
+        skip_simple_bitflip = 1;
+        rb_skip_deterministic = 1;
+      }
+      ck_free(min_branch_hits);
+
+    if (!skip_simple_bitflip){
+      cycle_wo_new = 0; 
+    }
+    //rarest_branches = get_lowest_hit_branch_ids();
+    //DEBUG1("---\ncurrent rarest branches: ");
+    //for (int k = 0; rarest_branches[k] != -1 ; k++){
+    //  DEBUG1("%i (%u) ", rarest_branches[k], hit_bits[rarest_branches[k]]);
+    //}
+    //DEBUG1("\n");
+
+    DEBUG1("Trying to fuzz input %s: \n", queue_cur->fname);
+    //for (int k = 0; k < len; k++) DEBUG1("%c", out_buf[k]);
+    //DEBUG1("\n");
+
+
+    DEBUG1("which hit branch %i (hit by %u inputs) \n", rb_fuzzing -1, hit_bits[rb_fuzzing -1]);
+    //ck_free(rarest_branches);
+   
+    }
+  }
 
   if (not_on_tty) {
     ACTF("Fuzzing test case #%u (%u total, %llu uniq crashes found)...",
@@ -8017,7 +8223,7 @@ int main(int argc, char** argv) {
     switch (opt) {
 
       case 'b': /* disable use of branch mask */
-        use_branch_mask = 0;
+        use_branch_mask = false;
         break;
 
       case 'q': /* bootstrap queueing after being stuck */
