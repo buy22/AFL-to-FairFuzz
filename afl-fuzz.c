@@ -867,9 +867,9 @@ static int* get_rare_branch_ids() {
       int highest_order_bit = 0;
       while(curent_hits >>= 1) highest_order_bit++;
       if (highest_order_bit < lowest_hi_bits) lowest_hi_bits = highest_order_bit;
-      if (highest_order_bit < rare_branch_exp){
-        if (highest_order_bit < rare_branch_exp - 1){
-          rare_branch_exp = highest_order_bit + 1;
+      if (highest_order_bit < max_rare_branch_bits){
+        if (highest_order_bit < max_rare_branch_bits - 1){
+          max_rare_branch_bits = highest_order_bit + 1;
           num_rare_branches = 0;
         }
         rare_branch_ids[num_rare_branches] = i;
@@ -5299,7 +5299,7 @@ static u8 fuzz_one(char** argv) {
   }
 
  if (skip_deterministic) {
-  rb_skip_deterministic = 1;
+  fairfuzz_skip_deterministic = 1;
   skip_simple_bitflip = 1;
  }
 
@@ -5388,12 +5388,12 @@ static u8 fuzz_one(char** argv) {
         }
         DEBUG1("We fuzzed this guy already for real\n");
         skip_simple_bitflip = 1;
-        rb_skip_deterministic = 1;
+        fairfuzz_skip_deterministic = 1;
       }
       ck_free(min_branch_hits);
 
     if (!skip_simple_bitflip){
-      cycle_wo_new = 0; 
+      cycle_branch_unchanged = 0; 
     }
     //rarest_branches = get_lowest_hit_branch_ids();
     //DEBUG1("---\ncurrent rarest branches: ");
@@ -6825,7 +6825,7 @@ havoc_stage:
 
               if (extra_len > temp_len) break;
 
-              insert_at = pos_to_mutate(copy_len * 8, 1, temp_len, branch_mask, position_map);
+              insert_at = pos_to_mutate(extra_len * 8, 1, temp_len, branch_mask, position_map);
               if (insert_at == -1) break;
               memcpy(out_buf + insert_at, a_extras[use_extra].data, extra_len);
 
@@ -6839,7 +6839,7 @@ havoc_stage:
 
               if (extra_len > temp_len) break;
 
-              insert_at = pos_to_mutate(copy_len * 8, 1, temp_len, branch_mask, position_map);
+              insert_at = pos_to_mutate(extra_len * 8, 1, temp_len, branch_mask, position_map);
               if (copy_to == -1) break;
               memcpy(out_buf + insert_at, extras[use_extra].data, extra_len);
 
@@ -7074,7 +7074,7 @@ abandon_entry:
     if (queue_cur->favored) pending_favored--;
   }
 
-  DEBUG1("%sIn havoc stage, %i of %i tries hit branch %i\n", shadow_prefix, successful_branch_tries, total_branch_tries, rb_fuzzing - 1);
+  // DEBUG1("%sIn havoc stage, %i of %i tries hit branch %i\n", shadow_prefix, successful_branch_tries, total_branch_tries, rb_fuzzing - 1);
   successful_branch_tries = 0;
   total_branch_tries = 0;
   //DEBUG1("%shavoc stage: %i new coverage in %i total execs\n", shadow_prefix, queued_discovered-orig_queued_discovered, total_execs-orig_total_execs);
@@ -8212,11 +8212,11 @@ int main(int argc, char** argv) {
   gettimeofday(&tv, &tz);
   srandom(tv.tv_sec ^ tv.tv_usec ^ getpid());
 
-  while ((opt = getopt(argc, argv, "+bq:i:o:f:m:t:T:dnCB:S:M:x:Q")) > 0)
+  while ((opt = getopt(argc, argv, "+zq:i:o:f:m:t:T:dnCB:S:M:x:Q")) > 0)
 
     switch (opt) {
 
-      case 'b': /* disable use of branch mask */
+      case 'z': /* disable use of branch mask */
         use_branch_mask = false;
         break;
 
