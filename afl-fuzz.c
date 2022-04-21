@@ -37,6 +37,7 @@
 #endif
 #define _FILE_OFFSET_BITS 64
 
+#define DEBUG1 fileonly
 #include "config.h"
 #include "types.h"
 #include "debug.h"
