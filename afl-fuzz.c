@@ -358,6 +358,19 @@ enum {
   /* 05 */ FAULT_NOBITS
 };
 
+void fileonly (char const *fmt, ...) { 
+    static FILE *f = NULL;
+    if (f == NULL) {
+      u8 * fn = alloc_printf("%s/min-branch-fuzzing.log", out_dir);
+      f= fopen(fn, "w");
+      ck_free(fn);
+    }
+    va_list ap;
+    va_start(ap, fmt);
+    vfprintf(f, fmt, ap);
+    va_end(ap);
+}
+
 /* at the end of execution, dump the number of inputs hitting
    each branch to log */
 static void dump_hits() {
