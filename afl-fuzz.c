@@ -882,8 +882,8 @@ static int* get_rare_branch_ids() {
   if (num_rare_branches == 0){
     DEBUG1("Was returning list of size 0\n");
     if (lowest_hi_bits != INT_MAX) {
-      rare_branch_exp = lowest_hi_bits + 1;
-      DEBUG1("Upped max exp to %i\n", rare_branch_exp);
+      max_rare_branch_bits = lowest_hi_bits + 1;
+      DEBUG1("Upped max rare branch bits to %i\n", max_rare_branch_bits);
       ck_free(rare_branch_ids);
       return get_rare_branch_ids();
     }
@@ -6840,7 +6840,7 @@ havoc_stage:
               if (extra_len > temp_len) break;
 
               insert_at = pos_to_mutate(extra_len * 8, 1, temp_len, branch_mask, position_map);
-              if (copy_to == -1) break;
+              if (insert_at == -1) break;
               memcpy(out_buf + insert_at, extras[use_extra].data, extra_len);
 
             }
