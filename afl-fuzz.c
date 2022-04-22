@@ -919,40 +919,29 @@ static int hits_branch(int branch_id){
 static u32 * is_rare_hit(u8* trace_bits_mini){
   int * rare_branches = get_rare_branch_ids();
   u32 * branch_ids = ck_alloc(sizeof(u32) * MAX_RARE_BRANCHES);
-  u32 * branch_cts = ck_alloc(sizeof(u32) * MAX_RARE_BRANCHES);
+  u32 * branch_hits = ck_alloc(sizeof(u32) * MAX_RARE_BRANCHES);
   int min_hit_index = 0;
 
-  for (int index = 0; index < MAP_SIZE ; index ++){
-      if (unlikely (trace_bits_mini[i >> 3]  & (1 <<(i & 7)) )){
-        int is_rare = find_id(cur_index, rare_branches);
-        if (is_rare) {
+  for (int index = 0; index < MAP_SIZE ; index++){
+      if (unlikely(trace_bits_mini[i >> 3]  & (1 <<(i & 7)) )){
+        if (find_id(cur_index, rare_branches)) {
           // at loop initialization, set min_branch_hit properly
           if (min_hit_index == 0) {
-            branch_cts[min_hit_index] = hit_bits[index];
+            branch_hits[min_hit_index] = hit_bits[index];
             branch_ids[min_hit_index] = index + 1;
           }
           // in general just check if we're a smaller branch 
           // than the previously found min
-          int j;
-          for (j = 0 ; j < min_hit_index; j++){
-            if (hit_bits[index] <= branch_cts[j]){
-              memmove(branch_cts + j + 1, branch_cts + j, min_hit_index -j);
-              memmove(branch_ids + j + 1, branch_ids + j, min_hit_index -j);
-              branch_cts[j] = hit_bits[index];
+          for (int j = 0 ; j < min_hit_index; j++){
+            if (hit_bits[index] <= branch_hits[j]){
+              memmove(branch_hits + j + 1, branch_cts + j, min_hit_index - j);
+              memmove(branch_ids + j + 1, branch_ids + j, min_hit_index - j);
+              branch_hits[j] = hit_bits[index];
               branch_ids[j] = index + 1;
             }
           }
-          // append at end
-          if (j == min_hit_index){
-            branch_cts[j] = hit_bits[index];
-            // + 1 so we can distinguish 0 from other cases
-            branch_ids[j] = cur_index + 1;
-
-          }
-          // this is only incremented when is_rare holds, which should
-          // only happen a max of MAX_RARE_BRANCHES -1 times -- the last
-          // time we will never reenter so this is always < MAX_RARE_BRANCHES
-          // at the top of the if statement
+          branch_hits[min_hit_index] = hit_bits[index];
+          branch_ids[min_hit_index] = cur_index + 1;
           min_hit_index++;
         }
       }
@@ -965,15 +954,13 @@ static u32 * is_rare_hit(u8* trace_bits_mini){
       branch_ids = NULL;
   } else branch_ids[min_hit_index] = 0;
   return branch_ids;
-
 }
 
 
 /* get a random modifiable position (i.e. where branch_mask & mod_type) 
    for both overwriting and removal we want to make sure we are overwriting
    or removing parts within the branch mask
-*/
-// assumes map_len is len, not len + 1. be careful. 
+*/ 
 static u32 pos_to_mutate(u32 num_to_modify, u8 mod_type, u32 map_len, u8* branch_mask, u32 * position_map){
   u32 ret = -1;
   u32 position_map_len = 0;
@@ -1023,8 +1010,7 @@ static u32 pos_to_mutate(u32 num_to_modify, u8 mod_type, u32 map_len, u8* branch
   
 }
 
-// just need a random element of branch_mask which & with 4
-// assumes map_len is len, not len + 1. be careful. 
+// random element of a branch_mask & 4
 static u32 pos_to_insert(u32 map_len, u8* branch_mask, u32 * position_map){
 
   u32 position_map_len = 0;
@@ -1050,7 +1036,6 @@ static void init_hit_bits() {
   if (file < 0) PFATAL("Unable to open '%s'", path);
   ck_read(file, hit_bits, sizeof(u64) * MAP_SIZE, path);
   close(file);
-  OKF("Loaded hit_bits.");
 }
 
 /* Append new test case to the queue. */
@@ -1058,6 +1043,10 @@ static void init_hit_bits() {
 static void add_to_queue(u8* fname, u32 len, u8 passed_det) {
 
   struct queue_entry* q = ck_alloc(sizeof(struct queue_entry));
+
+  q->trace_mini = ck_alloc(MAP_SIZE >> 3);
+  minimize_bits(q->trace_mini, trace_bits);
+  q->fuzzed_branches = ck_alloc(MAP_SIZE >>3);
 
   q->fname        = fname;
   q->len          = len;
@@ -2858,8 +2847,8 @@ static u8 calibrate_case(char** argv, struct queue_entry* q, u8* use_mem,
   if (q->exec_cksum) {
 
     memcpy(first_trace, trace_bits, MAP_SIZE);
-    hnb = has_new_bits(virgin_bits);
-    if (hnb > new_bits) new_bits = hnb;
+    // hnb = has_new_bits(virgin_bits);
+    // if (hnb > new_bits) new_bits = hnb;
 
   }
 
@@ -3021,6 +3010,11 @@ static void perform_dry_run(char** argv) {
     close(fd);
 
     res = calibrate_case(argv, q, use_mem, 0, 1);
+    ck_free(q->trace_mini);
+    ck_free(q->fuzzed_branches);
+    q->trace_mini = ck_alloc(MAP_SIZE >> 3);
+    minimize_bits(q->trace_mini, trace_bits);
+    q->fuzzed_branches = ck_alloc(MAP_SIZE >>3);
     ck_free(use_mem);
 
     if (stop_soon) return;
