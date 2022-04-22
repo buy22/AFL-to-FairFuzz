@@ -894,10 +894,9 @@ static int* get_rare_branch_ids() {
   }
 
   if (num_rare_branches == 0){
-    DEBUG1("Was returning list of size 0\n");
     if (lowest_hi_bits != INT_MAX) {
       max_rare_branch_bits = lowest_hi_bits + 1;
-      DEBUG1("Upped max rare branch bits to %i\n", max_rare_branch_bits);
+      DEBUG1("Raised max_rare_branch_bits to %i\n", max_rare_branch_bits);
       ck_free(rare_branch_ids);
       return get_rare_branch_ids();
     }
@@ -918,35 +917,34 @@ static int hits_branch(int branch_id){
 // else returns a list of all the rare branches hit
 // by the mini trace bits, in decreasing order of rarity
 static u32 * is_rare_hit(u8* trace_bits_mini){
-  int * rarest_branches = get_rare_branch_ids();
+  int * rare_branches = get_rare_branch_ids();
   u32 * branch_ids = ck_alloc(sizeof(u32) * MAX_RARE_BRANCHES);
   u32 * branch_cts = ck_alloc(sizeof(u32) * MAX_RARE_BRANCHES);
   int min_hit_index = 0;
 
-  for (int i = 0; i < MAP_SIZE ; i ++){
+  for (int index = 0; index < MAP_SIZE ; index ++){
       if (unlikely (trace_bits_mini[i >> 3]  & (1 <<(i & 7)) )){
-        int cur_index = i;
-        int is_rare = find_id(cur_index, rarest_branches);
+        int is_rare = find_id(cur_index, rare_branches);
         if (is_rare) {
           // at loop initialization, set min_branch_hit properly
-          if (!min_hit_index) {
-            branch_cts[min_hit_index] = hit_bits[cur_index];
-            branch_ids[min_hit_index] = cur_index + 1;
+          if (min_hit_index == 0) {
+            branch_cts[min_hit_index] = hit_bits[index];
+            branch_ids[min_hit_index] = index + 1;
           }
           // in general just check if we're a smaller branch 
           // than the previously found min
           int j;
           for (j = 0 ; j < min_hit_index; j++){
-            if (hit_bits[cur_index] <= branch_cts[j]){
+            if (hit_bits[index] <= branch_cts[j]){
               memmove(branch_cts + j + 1, branch_cts + j, min_hit_index -j);
               memmove(branch_ids + j + 1, branch_ids + j, min_hit_index -j);
-              branch_cts[j] = hit_bits[cur_index];
-              branch_ids[j] = cur_index + 1;
+              branch_cts[j] = hit_bits[index];
+              branch_ids[j] = index + 1;
             }
           }
           // append at end
           if (j == min_hit_index){
-            branch_cts[j] = hit_bits[cur_index];
+            branch_cts[j] = hit_bits[index];
             // + 1 so we can distinguish 0 from other cases
             branch_ids[j] = cur_index + 1;
 
@@ -965,10 +963,7 @@ static u32 * is_rare_hit(u8* trace_bits_mini){
   if (min_hit_index == 0){
       ck_free(branch_ids);
       branch_ids = NULL;
-  } else {
-    // 0 terminate the array
-    branch_ids[min_hit_index] = 0;
-  }
+  } else branch_ids[min_hit_index] = 0;
   return branch_ids;
 
 }
