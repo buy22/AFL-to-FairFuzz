@@ -7,7 +7,7 @@ int main(int argc, char *argv[]) {
     fgets(buf, 8, stdin);
     if (buf[0] == '0'){
         char A = 'asd';
-        if(buf[1] == 'q' && buf[2] == 'c')
+        if(buf[1] == 'q' && buf[2] == 'f')
             puts(A);
     } else {
         /* Covered by most AFL runs */
