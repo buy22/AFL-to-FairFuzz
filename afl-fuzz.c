@@ -4948,7 +4948,7 @@ EXP_ST u8 common_fuzz_stuff(char** argv, u8* out_buf, u32 len) {
 
   }
 
-  if (vanilla_afl) vanilla_afl--;
+  if (vanilla_afl > 0) vanilla_afl--;
 
   if (rb_fuzzing) {
     total_branch_tries++;
