@@ -923,8 +923,8 @@ static u32 * is_rare_hit(u8* trace_bits_mini){
   int min_hit_index = 0;
 
   for (int index = 0; index < MAP_SIZE ; index++){
-      if (unlikely(trace_bits_mini[i >> 3]  & (1 <<(i & 7)) )){
-        if (find_id(cur_index, rare_branches)) {
+      if (unlikely(trace_bits_mini[index >> 3]  & (1 <<(index & 7)) )){
+        if (find_id(index, rare_branches)) {
           // at loop initialization, set min_branch_hit properly
           if (min_hit_index == 0) {
             branch_hits[min_hit_index] = hit_bits[index];
@@ -934,21 +934,21 @@ static u32 * is_rare_hit(u8* trace_bits_mini){
           // than the previously found min
           for (int j = 0 ; j < min_hit_index; j++){
             if (hit_bits[index] <= branch_hits[j]){
-              memmove(branch_hits + j + 1, branch_cts + j, min_hit_index - j);
+              memmove(branch_hits + j + 1, branch_hits + j, min_hit_index - j);
               memmove(branch_ids + j + 1, branch_ids + j, min_hit_index - j);
               branch_hits[j] = hit_bits[index];
               branch_ids[j] = index + 1;
             }
           }
           branch_hits[min_hit_index] = hit_bits[index];
-          branch_ids[min_hit_index] = cur_index + 1;
+          branch_ids[min_hit_index] = index + 1;
           min_hit_index++;
         }
       }
 
   }
-  ck_free(branch_cts);
-  ck_free(rarest_branches);
+  ck_free(branch_hits);
+  ck_free(rare_branches);
   if (min_hit_index == 0){
       ck_free(branch_ids);
       branch_ids = NULL;
@@ -1036,6 +1036,23 @@ static void init_hit_bits() {
   if (file < 0) PFATAL("Unable to open '%s'", path);
   ck_read(file, hit_bits, sizeof(u64) * MAP_SIZE, path);
   close(file);
+}
+
+/* Compact trace bytes into a smaller bitmap. We effectively just drop the
+   count information here. This is called only sporadically, for some
+   new paths. */
+
+static void minimize_bits(u8* dst, u8* src) {
+
+  u32 i = 0;
+
+  while (i < MAP_SIZE) {
+
+    if (*(src++)) dst[i >> 3] |= 1 << (i & 7);
+    i++;
+
+  }
+
 }
 
 /* Append new test case to the queue. */
@@ -1473,24 +1490,6 @@ static inline void classify_counts(u32* mem) {
 static void remove_shm(void) {
 
   shmctl(shm_id, IPC_RMID, NULL);
-
-}
-
-
-/* Compact trace bytes into a smaller bitmap. We effectively just drop the
-   count information here. This is called only sporadically, for some
-   new paths. */
-
-static void minimize_bits(u8* dst, u8* src) {
-
-  u32 i = 0;
-
-  while (i < MAP_SIZE) {
-
-    if (*(src++)) dst[i >> 3] |= 1 << (i & 7);
-    i++;
-
-  }
 
 }
 
