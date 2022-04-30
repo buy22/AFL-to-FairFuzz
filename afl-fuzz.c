@@ -962,7 +962,7 @@ static u32 * is_rare_hit(u8* trace_bits_mini){
    or removing parts within the branch mask
 */ 
 static u32 pos_to_mutate(u32 num_to_modify, u8 mod_type, u32 map_len, u8* branch_mask, u32 * position_map){
-  u32 ret = -1;
+  u32 ret = 0xffffffff;
   u32 position_map_len = 0;
   int prev_start_of_1_block = -1;
   int in_0_block = 1;
@@ -6533,7 +6533,7 @@ havoc_stage:
 
           /* Flip a single bit somewhere. Spooky! */
           mutate_pos = pos_to_mutate(1, 1, temp_len, branch_mask, position_map);
-          if(mutate_pos != -1) FLIP_BIT(out_buf, mutate_pos);
+          FLIP_BIT(out_buf, mutate_pos);
           
           break;
 
@@ -6541,14 +6541,15 @@ havoc_stage:
 
           /* Set byte to interesting value. */
           mutate_pos = pos_to_mutate(8, 1, temp_len, branch_mask, position_map);
-          if(mutate_pos != -1) out_buf[mutate_pos] = interesting_8[UR(sizeof(interesting_8))];
+          out_buf[mutate_pos] = interesting_8[UR(sizeof(interesting_8))];
           break;
 
         case 2:
+          if (temp_len < 2) break;
 
           /* Set word to interesting value, randomly choosing endian. */
           mutate_pos = pos_to_mutate(16, 1, temp_len, branch_mask, position_map);
-          if (temp_len < 2 || mutate_pos == -1) break;
+          if (mutate_pos == 0xffffffff) break;
 
           
           if (UR(2)) {
@@ -6566,21 +6567,22 @@ havoc_stage:
           break;
 
         case 3:
+          if (temp_len < 4) break;
 
           /* Set dword to interesting value, randomly choosing endian. */
 
           mutate_pos = pos_to_mutate(32, 1, temp_len, branch_mask, position_map);
-          if (temp_len < 4 || mutate_pos == -1) break;
+          if (mutate_pos == 0xffffffff) break;
 
           
           if (UR(2)) {
   
-            *(u32*)(out_buf + UR(temp_len - 3)) =
+            *(u32*)(out_buf + mutate_pos) =
               interesting_32[UR(sizeof(interesting_32) >> 2)];
 
           } else {
 
-            *(u32*)(out_buf + UR(temp_len - 3)) = SWAP32(
+            *(u32*)(out_buf + mutate_pos) = SWAP32(
               interesting_32[UR(sizeof(interesting_32) >> 2)]);
 
           }
@@ -6591,21 +6593,22 @@ havoc_stage:
 
           /* Randomly subtract from byte. */
           mutate_pos = pos_to_mutate(8, 1, temp_len, branch_mask, position_map);
-          if(mutate_pos != -1) out_buf[mutate_pos] -= 1 + UR(ARITH_MAX);
+          if(mutate_pos != 0xffffffff) out_buf[mutate_pos] -= 1 + UR(ARITH_MAX);
           break;
 
         case 5:
 
           /* Randomly add to byte. */
           mutate_pos = pos_to_mutate(8, 1, temp_len, branch_mask, position_map);
-          if(mutate_pos != -1) out_buf[UR(temp_len)] += 1 + UR(ARITH_MAX);
+          if(mutate_pos != 0xffffffff) out_buf[mutate_pos] += 1 + UR(ARITH_MAX);
           break;
 
         case 6:
+          if (temp_len < 2) break;
 
           /* Randomly subtract from word, random endian. */
           mutate_pos = pos_to_mutate(16, 1, temp_len, branch_mask, position_map);
-          if (temp_len < 2 || mutate_pos == -1) break;
+          if (mutate_pos == 0xffffffff) break;
 
           if (UR(2)) {
 
@@ -6623,10 +6626,11 @@ havoc_stage:
           break;
 
         case 7:
+          if (temp_len < 2) break;
 
           /* Randomly add to word, random endian. */
           mutate_pos = pos_to_mutate(16, 1, temp_len, branch_mask, position_map);
-          if (temp_len < 2 || mutate_pos == -1) break;
+          if (mutate_pos == 0xffffffff) break;
 
           if (UR(2)) {
 
@@ -6644,10 +6648,11 @@ havoc_stage:
           break;
 
         case 8:
+          if (temp_len < 4) break;
 
           /* Randomly subtract from dword, random endian. */
           mutate_pos = pos_to_mutate(32, 1, temp_len, branch_mask, position_map);
-          if (temp_len < 4 || mutate_pos == -1) break;
+          if (mutate_pos == 0xffffffff) break;
 
           if (UR(2)) {
 
@@ -6665,10 +6670,11 @@ havoc_stage:
           break;
 
         case 9:
+          if (temp_len < 4) break;
 
           /* Randomly add to dword, random endian. */
           mutate_pos = pos_to_mutate(32, 1, temp_len, branch_mask, position_map);
-          if (temp_len < 4 || mutate_pos == -1) break;
+          if (mutate_pos == 0xffffffff) break;
 
           if (UR(2)) {
 
@@ -6691,7 +6697,7 @@ havoc_stage:
              why not. We use XOR with 1-255 to eliminate the
              possibility of a no-op. */
           mutate_pos = pos_to_mutate(8, 1, temp_len, branch_mask, position_map);
-          if(mutate_pos != -1) out_buf[mutate_pos] ^= 1 + UR(255);
+          if(mutate_pos != 0xffffffff) out_buf[mutate_pos] ^= 1 + UR(255);
           break;
 
         case 11 ... 12: {
@@ -6709,7 +6715,7 @@ havoc_stage:
             del_len = choose_block_len(temp_len - 1);
 
             del_from = pos_to_mutate(del_len*8, 2, temp_len, branch_mask, position_map);
-            if(del_from == -1) break;
+            if(del_from == 0xffffffff) break;
             memmove(out_buf + del_from, out_buf + del_from + del_len,
                     temp_len - del_from - del_len);
             // remove that data from the branch mask
@@ -6746,6 +6752,7 @@ havoc_stage:
             }
 
             clone_to = pos_to_insert(temp_len, branch_mask, position_map);
+            if (clone_to == 0xffffffff) break;
 
             new_buf = ck_alloc_nozero(temp_len + clone_len);
             new_branch_mask = alloc_branch_mask(temp_len + clone_len + 1);
@@ -6795,7 +6802,7 @@ havoc_stage:
 
             copy_from = UR(temp_len - copy_len + 1);
             copy_to   = pos_to_mutate(copy_len * 8, 1, temp_len, branch_mask, position_map);
-            if (copy_to == -1) break;
+            if (copy_to == 0xffffffff) break;
 
             if (UR(4)) {
 
@@ -6828,7 +6835,7 @@ havoc_stage:
               if (extra_len > temp_len) break;
 
               insert_at = pos_to_mutate(extra_len * 8, 1, temp_len, branch_mask, position_map);
-              if (insert_at == -1) break;
+              if (insert_at == 0xffffffff) break;
               memcpy(out_buf + insert_at, a_extras[use_extra].data, extra_len);
 
             } else {
@@ -6842,7 +6849,7 @@ havoc_stage:
               if (extra_len > temp_len) break;
 
               insert_at = pos_to_mutate(extra_len * 8, 1, temp_len, branch_mask, position_map);
-              if (insert_at == -1) break;
+              if (insert_at == 0xffffffff) break;
               memcpy(out_buf + insert_at, extras[use_extra].data, extra_len);
 
             }
@@ -6854,6 +6861,7 @@ havoc_stage:
         case 16: {
 
             u32 use_extra, extra_len, insert_at = pos_to_insert(temp_len, branch_mask, position_map);
+            if (insert_at == 0xffffffff) break;
             u8* new_buf;
             u8* new_branch_mask; 
 
@@ -6924,10 +6932,12 @@ havoc_stage:
     /* out_buf might have been mangled a bit, so let's restore it to its
        original size and shape. */
 
-    if (temp_len < len) out_buf = ck_realloc(out_buf, len);
+    if (temp_len < len) {
+      out_buf = ck_realloc(out_buf, len);
       out_buf = ck_realloc(out_buf, len);
       branch_mask = ck_realloc(branch_mask, len + 1);
       position_map = ck_realloc(position_map, sizeof (u32) * (len + 1));
+    }
     temp_len = len;
     memcpy(out_buf, in_buf, len);
     memcpy(branch_mask, orig_branch_mask, len + 1);
@@ -7050,7 +7060,7 @@ retry_splicing:
     ck_free(orig_branch_mask);
     orig_branch_mask = ck_alloc(len +1);
     new_branch_mask = alloc_branch_mask(len + 1);
-    memcpy(new_branch_mask, branch_mask, MIN(split_at, temp_len + 1));
+    memcpy(new_branch_mask, branch_mask, len + 1);
     ck_free(branch_mask);
     branch_mask = new_branch_mask;
     memcpy (orig_branch_mask, branch_mask, len + 1);
@@ -8614,6 +8624,7 @@ stop_fuzzing:
   }
 
   dump_hits();
+  ck_free(blacklist);
   fclose(plot_file);
   destroy_queue();
   destroy_extras();
