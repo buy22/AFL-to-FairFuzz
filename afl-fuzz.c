@@ -5726,6 +5726,11 @@ static u8 fuzz_one(char** argv) {
 
     if (common_fuzz_stuff(argv, out_buf, len)) goto abandon_entry;
 
+    if (rb_fuzzing && use_branch_mask)
+      if (hits_branch(rb_fuzzing - 1)){
+        branch_mask[stage_cur] = 1;
+     }
+
     /* We also use this stage to pull off a simple trick: we identify
        bytes that seem to have no effect on the current execution path
        even when fully flipped - and we skip them during more expensive
@@ -6533,7 +6538,7 @@ havoc_stage:
 
           /* Flip a single bit somewhere. Spooky! */
           mutate_pos = pos_to_mutate(1, 1, temp_len, branch_mask, position_map);
-          FLIP_BIT(out_buf, mutate_pos);
+          if (mutate_pos != 0xffffffff) FLIP_BIT(out_buf, mutate_pos);
           
           break;
 
@@ -6541,7 +6546,7 @@ havoc_stage:
 
           /* Set byte to interesting value. */
           mutate_pos = pos_to_mutate(8, 1, temp_len, branch_mask, position_map);
-          out_buf[mutate_pos] = interesting_8[UR(sizeof(interesting_8))];
+          if (mutate_pos != 0xffffffff) out_buf[mutate_pos] = interesting_8[UR(sizeof(interesting_8))];
           break;
 
         case 2:
@@ -6785,6 +6790,9 @@ havoc_stage:
             temp_len += clone_len;
 
             position_map = ck_realloc(position_map, sizeof (u32) * (temp_len + 1));
+
+            if (!position_map)
+              PFATAL("Failure resizing position_map.\n");
           }
 
           break;
@@ -6801,7 +6809,7 @@ havoc_stage:
             copy_len  = choose_block_len(temp_len - 1);
 
             copy_from = UR(temp_len - copy_len + 1);
-            copy_to   = pos_to_mutate(copy_len * 8, 1, temp_len, branch_mask, position_map);
+            copy_to   = pos_to_mutate(copy_len*8, 1, temp_len, branch_mask, position_map);
             if (copy_to == 0xffffffff) break;
 
             if (UR(4)) {
@@ -6834,7 +6842,7 @@ havoc_stage:
 
               if (extra_len > temp_len) break;
 
-              insert_at = pos_to_mutate(extra_len * 8, 1, temp_len, branch_mask, position_map);
+              insert_at = pos_to_mutate(extra_len*8, 1, temp_len, branch_mask, position_map);
               if (insert_at == 0xffffffff) break;
               memcpy(out_buf + insert_at, a_extras[use_extra].data, extra_len);
 
@@ -6848,7 +6856,7 @@ havoc_stage:
 
               if (extra_len > temp_len) break;
 
-              insert_at = pos_to_mutate(extra_len * 8, 1, temp_len, branch_mask, position_map);
+              insert_at = pos_to_mutate(extra_len*8, 1, temp_len, branch_mask, position_map);
               if (insert_at == 0xffffffff) break;
               memcpy(out_buf + insert_at, extras[use_extra].data, extra_len);
 
@@ -6918,6 +6926,9 @@ havoc_stage:
             temp_len += extra_len;
 
             position_map = ck_realloc(position_map, sizeof (u32) * (temp_len + 1));
+            if (!position_map)
+              PFATAL("Failure resizing position_map.\n");
+
             break;
 
           }
@@ -6934,9 +6945,10 @@ havoc_stage:
 
     if (temp_len < len) {
       out_buf = ck_realloc(out_buf, len);
-      out_buf = ck_realloc(out_buf, len);
       branch_mask = ck_realloc(branch_mask, len + 1);
       position_map = ck_realloc(position_map, sizeof (u32) * (len + 1));
+      if (!position_map)
+        PFATAL("Failure resizing position_map.\n");
     }
     temp_len = len;
     memcpy(out_buf, in_buf, len);
@@ -6986,8 +6998,7 @@ retry_splicing:
 
     struct queue_entry* target;
     u32 tid, split_at;
-    u8* new_buf;
-    u8* new_branch_mask;
+    u8* new_buf, *new_branch_mask;
     s32 f_diff, l_diff;
 
     /* First of all, if we've modified in_buf for havoc, let's clean that
@@ -7056,11 +7067,15 @@ retry_splicing:
     memcpy(out_buf, in_buf, len);
 
     // @RB@ handle the branch mask
-    position_map = ck_realloc(position_map, sizeof (u32) * (len + 1));
+    position_map = ck_realloc(position_map, sizeof(u32) * (len+1));
+    if (!position_map)
+      PFATAL("Failure resizing position_map.\n");
+
     ck_free(orig_branch_mask);
     orig_branch_mask = ck_alloc(len +1);
+
     new_branch_mask = alloc_branch_mask(len + 1);
-    memcpy(new_branch_mask, branch_mask, len + 1);
+    memcpy(new_branch_mask, branch_mask, MIN(split_at, temp_len + 1));
     ck_free(branch_mask);
     branch_mask = new_branch_mask;
     memcpy (orig_branch_mask, branch_mask, len + 1);
@@ -8214,6 +8229,9 @@ int main(int argc, char** argv) {
   u8  exit_1 = !!getenv("AFL_BENCH_JUST_ONE");
   char** use_argv;
 
+  blacklist = ck_alloc(sizeof(int) * blacklist_size);
+  blacklist[0] = -1;
+  
   struct timeval tv;
   struct timezone tz;
 
@@ -8538,6 +8556,14 @@ int main(int argc, char** argv) {
     cull_queue();
 
     if (!queue_cur) {
+      DEBUG1("Entering new queueing cycle\n");
+      if (prev_cycle_branch_unchanged && (bootstrap == 3)){
+        // only bootstrap for 1 cycle
+        prev_cycle_branch_unchanged = 0;
+      } else {
+        prev_cycle_branch_unchanged = cycle_branch_unchanged;
+      }
+      cycle_branch_unchanged = 1;
 
       queue_cycle++;
       current_entry     = 0;
