@@ -235,7 +235,7 @@ static s32 cpu_core_count;            /* CPU core count                   */
 
 #ifdef HAVE_AFFINITY
 
-static s32 cpu_aff = -1;       	      /* Selected CPU core                */
+static s32 cpu_aff = -1;              /* Selected CPU core                */
 
 #endif /* HAVE_AFFINITY */
 
@@ -863,7 +863,7 @@ static void mark_as_redundant(struct queue_entry* q, u8 state) {
 static bool find_id(int id, int* branch_ids) {
   for (int i = 0; branch_ids[i] != -1; i++) {
     if (branch_ids[i] == id) return true;
-	}
+  }
   return false;
 }
 
@@ -3434,7 +3434,7 @@ static u8 save_if_interesting(char** argv, void* mem, u32 len, u8 fault) {
   if (fault == crash_mode) {
 
     /* @RB@ in shadow mode, don't increment hit bits*/
-    count_hit_bits();	
+    count_hit_bits(); 
 
     /* Keep only if there are new bits in the map, add to queue for
        future fuzzing, etc. */
@@ -5269,6 +5269,10 @@ static u8 could_be_interest(u32 old_val, u32 new_val, u8 blen, u8 check_le) {
 
 }
 
+static u32 trim_rb(char** argv, u8* in_buf, u32 in_len, u8* out_buf) {
+  /** TODO **/
+  return 0;
+}
 
 /* Take the current entry from the queue, fuzz it for a while. This
    function is a tad too long... returns 0 if fuzzed successfully, 1 if
@@ -5884,9 +5888,21 @@ skip_bitflip:
 
     u8 orig = out_buf[i];
 
+    bool skip_flag = false;
+
+    /* Fairfuzz !okToMutate */
+
+    if(rb_fuzzing)
+      if(!(branch_mask[i] & 1))
+        skip_flag = true;
+
     /* Let's consult the effector map... */
 
-    if (!eff_map[EFF_APOS(i)]) {
+    if (!eff_map[EFF_APOS(i)]){
+      skip_flag = true;
+    }
+
+    if(skip_flag){
       stage_max -= 2 * ARITH_MAX;
       continue;
     }
@@ -5948,9 +5964,20 @@ skip_bitflip:
 
     u16 orig = *(u16*)(out_buf + i);
 
+    bool skip_flag = false;
+
+    /* Fairfuzz !okToMutate */
+
+    if(rb_fuzzing)
+      if(!(branch_mask[i] & 1) || !(branch_mask[i+1] & 1))
+        skip_flag = true;
+
     /* Let's consult the effector map... */
 
-    if (!eff_map[EFF_APOS(i)] && !eff_map[EFF_APOS(i + 1)]) {
+    if (!eff_map[EFF_APOS(i)] && !eff_map[EFF_APOS(i + 1)])
+      skip_flag = true;
+
+    if(skip_flag){
       stage_max -= 4 * ARITH_MAX;
       continue;
     }
@@ -6042,10 +6069,23 @@ skip_bitflip:
 
     u32 orig = *(u32*)(out_buf + i);
 
+    bool skip_flag = false;
+
+    /* Fairfuzz !okToMutate */
+
+    if(rb_fuzzing)
+      if(!(branch_mask[i] & 1) || !(branch_mask[i+1] & 1) ||
+         !(branch_mask[i+2] & 1) || !(branch_mask[i+3] & 1))
+        skip_flag = true;
+
     /* Let's consult the effector map... */
 
     if (!eff_map[EFF_APOS(i)] && !eff_map[EFF_APOS(i + 1)] &&
         !eff_map[EFF_APOS(i + 2)] && !eff_map[EFF_APOS(i + 3)]) {
+      skip_flag = true;
+    }
+
+    if(skip_flag){
       stage_max -= 4 * ARITH_MAX;
       continue;
     }
@@ -6140,9 +6180,20 @@ skip_arith:
 
     u8 orig = out_buf[i];
 
+    bool skip_flag = false;
+
+    /* Fairfuzz !okToMutate */
+
+    if(rb_fuzzing)
+      if(!(branch_mask[i] & 1))
+        skip_flag = true;
+
     /* Let's consult the effector map... */
 
-    if (!eff_map[EFF_APOS(i)]) {
+    if (!eff_map[EFF_APOS(i)])
+      skip_flag = true;
+
+    if(skip_flag){
       stage_max -= sizeof(interesting_8);
       continue;
     }
@@ -6191,9 +6242,20 @@ skip_arith:
 
     u16 orig = *(u16*)(out_buf + i);
 
+    bool skip_flag = false;
+
+    /* Fairfuzz !okToMutate */
+
+    if(rb_fuzzing)
+      if(!(branch_mask[i] & 1) || !(branch_mask[i+1] & 1))
+        skip_flag = true;
+
     /* Let's consult the effector map... */
 
-    if (!eff_map[EFF_APOS(i)] && !eff_map[EFF_APOS(i + 1)]) {
+    if (!eff_map[EFF_APOS(i)] && !eff_map[EFF_APOS(i + 1)]) 
+      skip_flag = true;
+
+    if (skip_flag){
       stage_max -= sizeof(interesting_16);
       continue;
     }
@@ -6259,10 +6321,22 @@ skip_arith:
 
     u32 orig = *(u32*)(out_buf + i);
 
+    bool skip_flag = false;
+
+    /* Fairfuzz !okToMutate */
+
+    if(rb_fuzzing)
+      if(!(branch_mask[i] & 1) || !(branch_mask[i+1] & 1) ||
+         !(branch_mask[i+2] & 1) || !(branch_mask[i+3] & 1))
+        skip_flag = true;
+
     /* Let's consult the effector map... */
 
     if (!eff_map[EFF_APOS(i)] && !eff_map[EFF_APOS(i + 1)] &&
-        !eff_map[EFF_APOS(i + 2)] && !eff_map[EFF_APOS(i + 3)]) {
+        !eff_map[EFF_APOS(i + 2)] && !eff_map[EFF_APOS(i + 3)]) 
+      skip_flag = true;
+
+    if(skip_flag){
       stage_max -= sizeof(interesting_32) >> 1;
       continue;
     }
@@ -6350,14 +6424,30 @@ skip_interest:
          is redundant, or if its entire span has no bytes set in the effector
          map. */
 
+      bool skip_flag = false;
+
       if ((extras_cnt > MAX_DET_EXTRAS && UR(extras_cnt) >= MAX_DET_EXTRAS) ||
           extras[j].len > len - i ||
           !memcmp(extras[j].data, out_buf + i, extras[j].len) ||
           !memchr(eff_map + EFF_APOS(i), 1, EFF_SPAN_ALEN(i, extras[j].len))) {
 
+        skip_flag = true;
+
+      }
+
+      /* Fairfuzz !okToMutate */
+      if(rb_fuzzing){
+        for (int shift = 0; shift < extras[j].len; shift++){
+          if(!(branch_mask[i+shift] & 1)){
+            skip_flag = true;
+            break;
+          }
+        }
+      }
+
+      if(skip_flag){
         stage_max--;
         continue;
-
       }
 
       last_len = extras[j].len;
@@ -6451,13 +6541,28 @@ skip_user_extras:
 
       /* See the comment in the earlier code; extras are sorted by size. */
 
+      bool skip_flag = false;
+
       if (a_extras[j].len > len - i ||
           !memcmp(a_extras[j].data, out_buf + i, a_extras[j].len) ||
           !memchr(eff_map + EFF_APOS(i), 1, EFF_SPAN_ALEN(i, a_extras[j].len))) {
 
+        skip_flag = true;
+
+      }
+
+      /* Fairfuzz !okToMutate */
+      if(rb_fuzzing){
+        for (int shift = 0; shift < a_extras[j].len; shift++){
+          if(!(branch_mask[i+shift] & 1)){
+            skip_flag = true;
+          }
+        }
+      }
+
+      if(skip_flag){
         stage_max--;
         continue;
-
       }
 
       last_len = a_extras[j].len;
