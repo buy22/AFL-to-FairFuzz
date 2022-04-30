@@ -926,13 +926,14 @@ static u32 * is_rare_hit(u8* trace_bits_mini){
       if (unlikely(trace_bits_mini[index >> 3]  & (1 <<(index & 7)) )){
         if (find_id(index, rare_branches)) {
           // at loop initialization, set min_branch_hit properly
-          if (min_hit_index == 0) {
+          if (!min_hit_index) {
             branch_hits[min_hit_index] = hit_bits[index];
             branch_ids[min_hit_index] = index + 1;
           }
           // in general just check if we're a smaller branch 
           // than the previously found min
-          for (int j = 0 ; j < min_hit_index; j++){
+          int j;
+          for (j = 0 ; j < min_hit_index; j++){
             if (hit_bits[index] <= branch_hits[j]){
               memmove(branch_hits + j + 1, branch_hits + j, min_hit_index - j);
               memmove(branch_ids + j + 1, branch_ids + j, min_hit_index - j);
@@ -940,8 +941,11 @@ static u32 * is_rare_hit(u8* trace_bits_mini){
               branch_ids[j] = index + 1;
             }
           }
-          branch_hits[min_hit_index] = hit_bits[index];
-          branch_ids[min_hit_index] = index + 1;
+          if (j == min_hit_index){
+            branch_hits[min_hit_index] = hit_bits[index];
+            branch_ids[min_hit_index] = index + 1;
+          }
+          
           min_hit_index++;
         }
       }
@@ -1108,6 +1112,7 @@ EXP_ST void destroy_queue(void) {
     n = q->next;
     ck_free(q->fname);
     ck_free(q->trace_mini);
+    ck_free(q->fuzzed_branches);
     ck_free(q);
     q = n;
 
@@ -8231,7 +8236,7 @@ int main(int argc, char** argv) {
 
   blacklist = ck_alloc(sizeof(int) * blacklist_size);
   blacklist[0] = -1;
-  
+
   struct timeval tv;
   struct timezone tz;
 
