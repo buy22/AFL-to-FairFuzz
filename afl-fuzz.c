@@ -5730,6 +5730,172 @@ skip_simple_bitflip:
   stage_finds[STAGE_FLIP8]  += new_hit_cnt - orig_hit_cnt;
   stage_cycles[STAGE_FLIP8] += stage_max;
 
+
+  /* add/delete map in this stage */
+  if (rb_fuzzing && !shadow_mode && use_branch_mask > 0){
+    
+    // buffer to clobber with new things
+    u8* tmp_buf = ck_alloc(len+1);
+
+    // check if we can delete this byte
+    stage_short = "rbrem8";
+    for (stage_cur = 0; stage_cur < len; stage_cur++) {
+      /* delete current byte */
+      stage_cur_byte = stage_cur;
+    
+      /* head */
+      memcpy(tmp_buf, out_buf, stage_cur);
+      /* tail */
+      memcpy(tmp_buf + stage_cur, out_buf + 1 + stage_cur, len - stage_cur - 1 );
+
+      if (common_fuzz_stuff(argv, tmp_buf, len - 1)) goto abandon_entry;
+
+      /* if even with this byte deleted we hit the branch, can delete here */
+      if (hits_branch(rb_fuzzing - 1)){
+        branch_mask[stage_cur] += 2;
+      }
+    }
+
+    // check if we can add at this byte
+    stage_short = "rbadd8";
+    for (stage_cur = 0; stage_cur <= len; stage_cur++) {
+      /* add random byte */
+      stage_cur_byte = stage_cur;
+      /* head */
+      memcpy(tmp_buf, out_buf, stage_cur);
+      tmp_buf[stage_cur] = UR(256);
+      /* tail */
+      memcpy(tmp_buf + stage_cur + 1, out_buf + stage_cur, len - stage_cur);
+
+      if (common_fuzz_stuff(argv, tmp_buf, len + 1)) goto abandon_entry;
+
+      /* if adding before still hit branch, can add */
+      if (hits_branch(rb_fuzzing - 1)){
+        branch_mask[stage_cur] += 4;
+      }
+
+    }
+
+    ck_free(tmp_buf);
+    // save the original branch mask for after the havoc stage 
+    memcpy (orig_branch_mask, branch_mask, len + 1);
+  }
+
+  if (rb_fuzzing && (successful_branch_tries == 0)){
+    if (blacklist_pos >= blacklist_size -1){
+      DEBUG1("Increasing size of blacklist from %d to %d\n", blacklist_size, blacklist_size*2);
+      blacklist_size = 2 * blacklist_size; 
+      blacklist = ck_realloc(blacklist, sizeof(int) * blacklist_size);
+      if (!blacklist){
+        PFATAL("Failed to realloc blacklist");
+      }
+    }
+    blacklist[blacklist_pos++] = rb_fuzzing -1;
+    blacklist[blacklist_pos] = -1;
+    DEBUG1("adding branch %i to blacklist\n", rb_fuzzing-1);
+  }
+  /* @RB@ reset stats for debugging*/
+  DEBUG1("%swhile calibrating, %i of %i tries hit branch %i\n", shadow_prefix, successful_branch_tries, total_branch_tries, rb_fuzzing - 1);
+  DEBUG1("%scalib stage: %i new coverage in %i total execs\n", shadow_prefix, queued_discovered-orig_queued_discovered, total_execs-orig_total_execs);
+  DEBUG1("%scalib stage: %i new branches in %i total execs\n", shadow_prefix, queued_with_cov-orig_queued_with_cov, total_execs-orig_total_execs);
+  successful_branch_tries = 0;
+  total_branch_tries = 0;
+
+  // @RB@ TODO: skip to havoc (or dictionary add?) if can't modify any bytes 
+
+  if (rb_skip_deterministic) goto havoc_stage;
+
+  /* Two walking bits. */
+
+  stage_name  = "bitflip 2/1";
+  stage_short = "flip2";
+  stage_max   = (len << 3) - 1;
+
+  orig_hit_cnt = new_hit_cnt;
+
+  for (stage_cur = 0; stage_cur < (len << 3) - 1; stage_cur++) {
+
+    stage_cur_byte = stage_cur >> 3;
+
+    if (rb_fuzzing){ //&& use_mask()){
+      // only run modified case if it won't produce garbage
+
+      if (!(branch_mask[stage_cur_byte] & 1)) {
+        stage_max--;
+        continue;
+      }
+
+      // if we're spilling into next byte, check that that byte can
+      // be modified
+      if ((stage_cur_byte != ((stage_cur + 1)>> 3))&& (!(branch_mask[stage_cur_byte + 1] & 1))){
+        stage_max--;
+        continue;
+      }
+    }
+
+    FLIP_BIT(out_buf, stage_cur);
+    FLIP_BIT(out_buf, stage_cur + 1);
+
+    if (common_fuzz_stuff(argv, out_buf, len)) goto abandon_entry;
+
+    FLIP_BIT(out_buf, stage_cur);
+    FLIP_BIT(out_buf, stage_cur + 1);
+
+  }
+
+  new_hit_cnt = queued_paths + unique_crashes;
+
+  stage_finds[STAGE_FLIP2]  += new_hit_cnt - orig_hit_cnt;
+  stage_cycles[STAGE_FLIP2] += stage_max;
+
+  /* Four walking bits. */
+
+  stage_name  = "bitflip 4/1";
+  stage_short = "flip4";
+  stage_max   = (len << 3) - 3;
+
+  orig_hit_cnt = new_hit_cnt;
+
+  for (stage_cur = 0; stage_cur < (len << 3) - 3; stage_cur++) {
+
+    stage_cur_byte = stage_cur >> 3;
+
+    if (rb_fuzzing){//&& use_mask()){
+      // only run modified case if it won't produce garbage
+      if (!(branch_mask[stage_cur_byte] & 1)) {
+        stage_max--;
+        continue;
+      }
+
+      // if we're spilling into next byte, check that that byte can
+      // be modified
+      if ((stage_cur_byte != ((stage_cur + 3)>> 3))&& (!(branch_mask[stage_cur_byte + 1] & 1))){
+        stage_max--;
+        continue;
+      }
+    }
+
+    FLIP_BIT(out_buf, stage_cur);
+    FLIP_BIT(out_buf, stage_cur + 1);
+    FLIP_BIT(out_buf, stage_cur + 2);
+    FLIP_BIT(out_buf, stage_cur + 3);
+
+    if (common_fuzz_stuff(argv, out_buf, len)) goto abandon_entry;
+
+    FLIP_BIT(out_buf, stage_cur);
+    FLIP_BIT(out_buf, stage_cur + 1);
+    FLIP_BIT(out_buf, stage_cur + 2);
+    FLIP_BIT(out_buf, stage_cur + 3);
+
+  }
+
+  new_hit_cnt = queued_paths + unique_crashes;
+
+  stage_finds[STAGE_FLIP4]  += new_hit_cnt - orig_hit_cnt;
+  stage_cycles[STAGE_FLIP4] += stage_max;
+
+
+  
   /* Two walking bytes. */
 
   if (len < 2) goto skip_bitflip;
@@ -5748,6 +5914,13 @@ skip_simple_bitflip:
     if (!eff_map[EFF_APOS(i)] && !eff_map[EFF_APOS(i + 1)]) {
       stage_max--;
       continue;
+    }
+    if (rb_fuzzing ){
+      // skip if either byte will modify the branch
+      if (!(branch_mask[i] & 1) || !(branch_mask[i+1] & 1) ){
+        stage_max--;
+        continue;
+      }
     }
 
     stage_cur_byte = i;
@@ -5785,6 +5958,15 @@ skip_simple_bitflip:
         !eff_map[EFF_APOS(i + 2)] && !eff_map[EFF_APOS(i + 3)]) {
       stage_max--;
       continue;
+    }
+
+    if (rb_fuzzing){
+      // skip if either byte will modify the branch
+      if (!(branch_mask[i] & 1) || !(branch_mask[i+1]& 1) ||
+            !(branch_mask[i+2]& 1) || !(branch_mask[i+3]& 1) ){
+        stage_max--;
+        continue;
+      }
     }
 
     stage_cur_byte = i;
