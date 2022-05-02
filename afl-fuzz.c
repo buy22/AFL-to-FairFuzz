@@ -847,50 +847,57 @@ static void mark_as_redundant(struct queue_entry* q, u8 state) {
 }
 
 /* True if branch_ids contains certain id*/
-static bool find_id(int id, int* branch_ids) {
-  for (int i = 0; branch_ids[i] != -1; i++) {
-    if (branch_ids[i] == id) return true;
-  }
-  return false;
+static int contains_id(int branch_id, int* branch_ids){
+  for (int i = 0; branch_ids[i] != -1; i++){
+    if (branch_ids[i] == branch_id) return 1;
+	}
+  return 0; 
 }
 
-/* free the returned pointer. */
-static int* get_rare_branch_ids() {
+/* you'll have to free the return pointer. */
+static int* get_lowest_hit_branch_ids(){
   int * rare_branch_ids = ck_alloc(sizeof(int) * MAX_RARE_BRANCHES);
-  int lowest_hi_bits = INT_MAX;
-  int num_rare_branches = 0;
+  int lowest_hob = INT_MAX;
+  int ret_list_size = 0;
 
-  for (int i = 0; (i < MAP_SIZE) && (num_rare_branches < MAX_RARE_BRANCHES - 1); i++){
+  for (int i = 0; (i < MAP_SIZE) && (ret_list_size < MAX_RARE_BRANCHES - 1); i++){
     // ignore unseen branches. sparse array -> unlikely 
-    if (unlikely(hit_bits[i] > 0)) {
-      if (find_id(i, blacklist)) continue;
-      unsigned int long curent_hits = hit_bits[i];
+    if (unlikely(hit_bits[i] > 0)){
+      if (contains_id(i, blacklist)) continue;
+      unsigned int long cur_hits = hit_bits[i];
       int highest_order_bit = 0;
-      while(curent_hits >>= 1) highest_order_bit++;
-      if (highest_order_bit < lowest_hi_bits) lowest_hi_bits = highest_order_bit;
-      if (highest_order_bit < max_rare_branch_bits){
-        if (highest_order_bit < max_rare_branch_bits - 1){
-          max_rare_branch_bits = highest_order_bit + 1;
-          num_rare_branches = 0;
+      while(cur_hits >>=1)
+          highest_order_bit++;
+      lowest_hob = highest_order_bit < lowest_hob ? highest_order_bit : lowest_hob;
+      if (highest_order_bit < rare_branch_exp){
+        // if we are an order of magnitude smaller, prioritize the
+        // rarer branches
+        if (highest_order_bit < rare_branch_exp - 1){
+          rare_branch_exp = highest_order_bit + 1;
+          // everything else that came before had way more hits
+          // than this one, so remove from list
+          ret_list_size = 0;
         }
-        rare_branch_ids[num_rare_branches] = i;
-        num_rare_branches++;
+        rare_branch_ids[ret_list_size] = i;
+        ret_list_size++;
       }
 
     }
   }
 
-  if (num_rare_branches == 0){
-    if (lowest_hi_bits != INT_MAX) {
-      max_rare_branch_bits = lowest_hi_bits + 1;
-      DEBUG1("Raised max_rare_branch_bits to %i\n", max_rare_branch_bits);
+  if (ret_list_size == 0){
+    DEBUG1("Was returning list of size 0\n");
+    if (lowest_hob != INT_MAX) {
+      rare_branch_exp = lowest_hob + 1;
+      DEBUG1("Upped max exp to %i\n", rare_branch_exp);
       ck_free(rare_branch_ids);
-      return get_rare_branch_ids();
+      return get_lowest_hit_branch_ids();
     }
   }
 
-  rare_branch_ids[num_rare_branches] = -1;
+  rare_branch_ids[ret_list_size] = -1;
   return rare_branch_ids;
+
 }
 
 
@@ -903,48 +910,61 @@ static int hits_branch(int branch_id){
 // returns NULL if the trace bits does not hit a rare branch
 // else returns a list of all the rare branches hit
 // by the mini trace bits, in decreasing order of rarity
-static u32 * is_rare_hit(u8* trace_bits_mini){
-  int * rare_branches = get_rare_branch_ids();
+static u32 * is_rb_hit_mini(u8* trace_bits_mini){
+  int * rarest_branches = get_lowest_hit_branch_ids();
   u32 * branch_ids = ck_alloc(sizeof(u32) * MAX_RARE_BRANCHES);
-  u32 * branch_hits = ck_alloc(sizeof(u32) * MAX_RARE_BRANCHES);
+  u32 * branch_cts = ck_alloc(sizeof(u32) * MAX_RARE_BRANCHES);
   int min_hit_index = 0;
 
-  for (int index = 0; index < MAP_SIZE ; index++){
-      if (unlikely(trace_bits_mini[index >> 3]  & (1 <<(index & 7)) )){
-        if (find_id(index, rare_branches)) {
+  for (int i = 0; i < MAP_SIZE ; i ++){
+;
+      if (unlikely (trace_bits_mini[i >> 3]  & (1 <<(i & 7)) )){
+        int cur_index = i;
+        int is_rare = contains_id(cur_index, rarest_branches);
+        if (is_rare) {
           // at loop initialization, set min_branch_hit properly
           if (!min_hit_index) {
-            branch_hits[min_hit_index] = hit_bits[index];
-            branch_ids[min_hit_index] = index + 1;
+            branch_cts[min_hit_index] = hit_bits[cur_index];
+            branch_ids[min_hit_index] = cur_index + 1;
           }
           // in general just check if we're a smaller branch 
           // than the previously found min
           int j;
           for (j = 0 ; j < min_hit_index; j++){
-            if (hit_bits[index] <= branch_hits[j]){
-              memmove(branch_hits + j + 1, branch_hits + j, min_hit_index - j);
-              memmove(branch_ids + j + 1, branch_ids + j, min_hit_index - j);
-              branch_hits[j] = hit_bits[index];
-              branch_ids[j] = index + 1;
+            if (hit_bits[cur_index] <= branch_cts[j]){
+              memmove(branch_cts + j + 1, branch_cts + j, min_hit_index -j);
+              memmove(branch_ids + j + 1, branch_ids + j, min_hit_index -j);
+              branch_cts[j] = hit_bits[cur_index];
+              branch_ids[j] = cur_index + 1;
             }
           }
+          // append at end
           if (j == min_hit_index){
-            branch_hits[min_hit_index] = hit_bits[index];
-            branch_ids[min_hit_index] = index + 1;
+            branch_cts[j] = hit_bits[cur_index];
+            // + 1 so we can distinguish 0 from other cases
+            branch_ids[j] = cur_index + 1;
+
           }
-          
+          // this is only incremented when is_rare holds, which should
+          // only happen a max of MAX_RARE_BRANCHES -1 times -- the last
+          // time we will never reenter so this is always < MAX_RARE_BRANCHES
+          // at the top of the if statement
           min_hit_index++;
         }
       }
 
   }
-  ck_free(branch_hits);
-  ck_free(rare_branches);
+  ck_free(branch_cts);
+  ck_free(rarest_branches);
   if (min_hit_index == 0){
       ck_free(branch_ids);
       branch_ids = NULL;
-  } else branch_ids[min_hit_index] = 0;
+  } else {
+    // 0 terminate the array
+    branch_ids[min_hit_index] = 0;
+  }
   return branch_ids;
+
 }
 
 
@@ -5418,7 +5438,7 @@ static u8 fuzz_one(char** argv) {
   /* select inputs that are crucial to rare branches */
   if (!vanilla_afl) {
     skip_deterministic_bootstrap = 0;
-    u32 * min_branch_hits = is_rare_hit(queue_cur->trace_mini);
+    u32 * min_branch_hits = is_rb_hit_mini(queue_cur->trace_mini);
 
     if (min_branch_hits == NULL){
       // not a rare hit. don't fuzz.
