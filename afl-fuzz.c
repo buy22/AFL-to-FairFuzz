@@ -8936,6 +8936,7 @@ int main(int argc, char** argv) {
       }
 
       show_stats();
+      dump_hits();
 
       if (not_on_tty) {
         ACTF("Entering queue cycle %llu.", queue_cycle);
@@ -8977,7 +8978,7 @@ int main(int argc, char** argv) {
   }
 
   if (queue_cur) show_stats();
-  dump_hits();
+  
   write_bitmap();
   write_stats_file(0, 0, 0);
   save_auto();
