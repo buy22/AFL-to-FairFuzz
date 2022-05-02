@@ -6996,7 +6996,7 @@ havoc_stage:
 
             } else {
 
-              clone_len = choose_block_len(HAVOC_BLK_XL);
+              clone_len = choose_block_len(HAVOC_BLK_LARGE);
               clone_from = 0;
 
             }
@@ -7310,18 +7310,18 @@ retry_splicing:
     out_buf = ck_alloc_nozero(len);
     memcpy(out_buf, in_buf, len);
 
-    new_branch_mask = alloc_branch_mask(len + 1);
+    position_map = ck_realloc(position_map, sizeof(u32) * (len+1));
+    if (!position_map)
+      PFATAL("Failure resizing position_map.\n");
 
+    ck_free(orig_branch_mask);
+    orig_branch_mask = ck_alloc(len +1);
+
+    new_branch_mask = alloc_branch_mask(len + 1);
     memcpy(new_branch_mask, branch_mask, MIN(split_at, temp_len + 1));
     ck_free(branch_mask);
     branch_mask = new_branch_mask;
-    ck_free(orig_branch_mask);
-    orig_branch_mask = ck_alloc(len +1);
-    //ck_realloc(orig_branch_mask, len + 1);
     memcpy (orig_branch_mask, branch_mask, len + 1);
-    position_map = ck_realloc(position_map, sizeof (u32) * (len + 1));
-    if (!position_map)
-      PFATAL("Failure resizing position_map.\n");
 
     goto havoc_stage;
 
