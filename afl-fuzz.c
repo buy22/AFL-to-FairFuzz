@@ -303,14 +303,14 @@ static int max_rare_branch_bits = 4;
 static u32 total_branch_tries = 0;
 static u32 successful_branch_tries = 0;
 bool use_branch_mask = true;
-static int prev_cycle_branch_unchanged = 0;
-static int cycle_branch_unchanged = 0;
+static int prev_cycle_branch_changed = 0;
+static int cycle_branch_changed = 0;
 static int bootstrap = 0;
 static u8 skip_deterministic_bootstrap = 0;
 static int * blacklist; 
 static int blacklist_size = 1024;
 static int blacklist_pos;
-
+static int trim_for_branch = 0;
 /* Interesting values, as per config.h */
 
 static s8  interesting_8[]  = { INTERESTING_8 };
@@ -5276,17 +5276,20 @@ static u8 fuzz_one(char** argv) {
 
   /* FairFuzz */
 
-  u8 * branch_mask = 0;
-  u8 * orig_branch_mask = 0;
-  u32 * position_map = NULL;
+  u8* branch_mask = 0;
+  u8* orig_branch_mask = 0;
+  u32* position_map = NULL;
   u8 fairfuzz_skip_deterministic = 0;
   u8 skip_simple_bitflip = 0;
   u32 fairfuzz_queued_with_cov = queued_with_cov;
   u32 fairfuzz_queued_discovered = queued_discovered;
   u32 fairfuzz_total_execs = total_execs;
+  u32 orig_queued_with_cov = queued_with_cov;
+  u32 orig_queued_discovered = queued_discovered;
+  u32 orig_total_execs = total_execs;
 
   if (!vanilla_afl){
-    if (prev_cycle_branch_unchanged && bootstrap){
+    if (prev_cycle_branch_changed && bootstrap){
       vanilla_afl = 1;
       rb_fuzzing = 0;
       if (bootstrap == 2) skip_deterministic_bootstrap = 1;
@@ -5388,7 +5391,7 @@ static u8 fuzz_one(char** argv) {
       ck_free(min_branch_hits);
 
     if (!skip_simple_bitflip){
-      cycle_branch_unchanged = 0; 
+      cycle_branch_changed = 0; 
     }
     //rarest_branches = get_lowest_hit_branch_ids();
     //DEBUG1("---\ncurrent rarest branches: ");
@@ -6924,8 +6927,7 @@ havoc_stage:
 
             u32 use_extra, extra_len, insert_at = pos_to_insert(temp_len, branch_mask, position_map);
             if (insert_at == 0xffffffff) break;
-            u8* new_buf;
-            u8* new_branch_mask; 
+            u8* new_buf, * new_branch_mask; 
 
             /* Insert an extra. Do the same dice-rolling stuff as for the
                previous case. */
@@ -7159,6 +7161,11 @@ abandon_entry:
   total_branch_tries = 0;
   //DEBUG1("%shavoc stage: %i new coverage in %i total execs\n", shadow_prefix, queued_discovered-orig_queued_discovered, total_execs-orig_total_execs);
   //DEBUG1("%shavoc stage: %i new branches in %i total execs\n", shadow_prefix, queued_with_cov-orig_queued_with_cov, total_execs-orig_total_execs);
+  if (queued_with_cov-orig_queued_with_cov){
+    prev_cycle_branch_changed = 0;
+    vanilla_afl = 0;
+    cycle_branch_changed = 0;
+  }
 
   munmap(orig_in, queue_cur->len);
 
@@ -7586,7 +7593,7 @@ static void check_term_size(void) {
 
   if (ioctl(1, TIOCGWINSZ, &ws)) return;
 
-  if (ws.ws_row == 0 && ws.ws_col == 0) return;
+  // if (ws.ws_row == 0 && ws.ws_col == 0) return;
   if (ws.ws_row < 25 || ws.ws_col < 80) term_too_small = 1;
 
 }
@@ -8295,7 +8302,7 @@ int main(int argc, char** argv) {
   gettimeofday(&tv, &tz);
   srandom(tv.tv_sec ^ tv.tv_usec ^ getpid());
 
-  while ((opt = getopt(argc, argv, "+zq:i:o:f:m:t:T:dnCB:S:M:x:Q")) > 0)
+  while ((opt = getopt(argc, argv, "+zq:ri:o:f:m:t:T:dnCB:S:M:x:Q")) > 0)
 
     switch (opt) {
 
@@ -8306,6 +8313,11 @@ int main(int argc, char** argv) {
       case 'q': /* bootstrap queueing after being stuck */
         bootstrap = strtol(optarg, 0, 10);
         break;
+      
+      case 'r': /* trim for branch */
+        trim_for_branch = 1;
+        break;
+
       case 'i': /* input dir */
 
         if (in_dir) FATAL("Multiple -i options not supported");
@@ -8415,18 +8427,6 @@ int main(int argc, char** argv) {
         }
 
         break;
-      
-      case 'b': { /* bind CPU core */
-
-          if (cpu_to_bind_given) FATAL("Multiple -b options not supported");
-          cpu_to_bind_given = 1;
-
-          if (sscanf(optarg, "%u", &cpu_to_bind) < 1 ||
-              optarg[0] == '-') FATAL("Bad syntax used for -b");
-
-          break;
-
-      }
 
       case 'd': /* skip deterministic */
 
@@ -8610,13 +8610,13 @@ int main(int argc, char** argv) {
 
     if (!queue_cur) {
       DEBUG1("Entering new queueing cycle\n");
-      if (prev_cycle_branch_unchanged && (bootstrap == 3)){
+      if (prev_cycle_branch_changed && (bootstrap == 3)){
         // only bootstrap for 1 cycle
-        prev_cycle_branch_unchanged = 0;
+        prev_cycle_branch_changed = 0;
       } else {
-        prev_cycle_branch_unchanged = cycle_branch_unchanged;
+        prev_cycle_branch_changed = cycle_branch_changed;
       }
-      cycle_branch_unchanged = 1;
+      cycle_branch_changed = 1;
 
       queue_cycle++;
       current_entry     = 0;
@@ -8671,17 +8671,6 @@ int main(int argc, char** argv) {
   }
 
   if (queue_cur) show_stats();
-
-  /* If we stopped programmatically, we kill the forkserver and the current runner. 
-     If we stopped manually, this is done by the signal handler. */
-  if (stop_soon == 2) {
-      if (child_pid > 0) kill(child_pid, SIGKILL);
-      if (forksrv_pid > 0) kill(forksrv_pid, SIGKILL);
-  }
-  /* Now that we've killed the forkserver, we wait for it to be able to get rusage stats. */
-  if (waitpid(forksrv_pid, NULL, 0) <= 0) {
-    WARNF("error waitpid\n");
-  }
 
   write_bitmap();
   write_stats_file(0, 0, 0);
