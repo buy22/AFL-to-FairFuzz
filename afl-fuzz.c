@@ -1089,7 +1089,7 @@ static void add_to_queue(u8* fname, u32 len, u8 passed_det) {
   cycles_wo_finds = 0;
 
   /* Set next_100 pointer for every 100th element (index 0, 100, etc) to allow faster iteration. */
-  if ((queued_paths - 1) % 100 == 0 && queued_paths > 1) {
+  if (queued_paths % 100 == 0) {
 
     q_prev100->next_100 = q;
     q_prev100 = q;
@@ -1171,7 +1171,7 @@ EXP_ST void read_bitmap(u8* fname) {
 
 static inline u8 has_new_bits(u8* virgin_map) {
 
-#ifdef WORD_SIZE_64
+#ifdef __x86_64__
 
   u64* current = (u64*)trace_bits;
   u64* virgin  = (u64*)virgin_map;
@@ -1185,7 +1185,7 @@ static inline u8 has_new_bits(u8* virgin_map) {
 
   u32  i = (MAP_SIZE >> 2);
 
-#endif /* ^WORD_SIZE_64 */
+#endif /* ^__x86_64__ */
 
   u8   ret = 0;
 
@@ -1205,7 +1205,7 @@ static inline u8 has_new_bits(u8* virgin_map) {
         /* Looks like we have not found any new bytes yet; see if any non-zero
            bytes in current[] are pristine in virgin[]. */
 
-#ifdef WORD_SIZE_64
+#ifdef __x86_64__
 
         if ((cur[0] && vir[0] == 0xff) || (cur[1] && vir[1] == 0xff) ||
             (cur[2] && vir[2] == 0xff) || (cur[3] && vir[3] == 0xff) ||
@@ -1219,7 +1219,7 @@ static inline u8 has_new_bits(u8* virgin_map) {
             (cur[2] && vir[2] == 0xff) || (cur[3] && vir[3] == 0xff)) ret = 2;
         else ret = 1;
 
-#endif /* ^WORD_SIZE_64 */
+#endif /* ^__x86_64__ */
 
       }
 
@@ -1341,7 +1341,7 @@ static const u8 simplify_lookup[256] = {
 
 };
 
-#ifdef WORD_SIZE_64
+#ifdef __x86_64__
 
 static void simplify_trace(u64* mem) {
 
@@ -1398,7 +1398,7 @@ static void simplify_trace(u32* mem) {
 
 }
 
-#endif /* ^WORD_SIZE_64 */
+#endif /* ^__x86_64__ */
 
 
 /* Destructively classify execution counts in a trace. This is used as a
@@ -1435,7 +1435,7 @@ EXP_ST void init_count_class16(void) {
 }
 
 
-#ifdef WORD_SIZE_64
+#ifdef __x86_64__
 
 static inline void classify_counts(u64* mem) {
 
@@ -1487,7 +1487,7 @@ static inline void classify_counts(u32* mem) {
 
 }
 
-#endif /* ^WORD_SIZE_64 */
+#endif /* ^__x86_64__ */
 
 
 /* Get rid of shared memory (atexit handler). */
@@ -1530,6 +1530,10 @@ static void update_bitmap_score(struct queue_entry* q) {
          /* Looks like we're going to win. Decrease ref count for the
             previous winner, discard its trace_bits[] if necessary. */
 
+         //if (!--top_rated[i]->tc_ref) {
+           //ck_free(top_rated[i]->trace_mini);
+           //top_rated[i]->trace_mini = 0;
+         //}
 
        }
 
