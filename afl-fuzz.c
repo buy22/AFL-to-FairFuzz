@@ -8909,7 +8909,7 @@ int main(int argc, char** argv) {
 
   
   while (1) {
-
+    dump_hits();
     u8 skipped_fuzz;
 
     cull_queue();
@@ -8959,8 +8959,6 @@ int main(int argc, char** argv) {
     }
 
     skipped_fuzz = fuzz_one(use_argv);
-
-    dump_hits();
 
     if (!stop_soon && sync_id && !skipped_fuzz) {
       
