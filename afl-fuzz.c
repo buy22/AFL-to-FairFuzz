@@ -5492,6 +5492,10 @@ static u8 fuzz_one(char** argv) {
 
   }
 
+  // trim
+  u32 orig_bitmap_size = queue_cur->bitmap_size;
+  u64 orig_exec_us = queue_cur->exec_us;
+
   memcpy(out_buf, in_buf, len);
 
   /*********************
