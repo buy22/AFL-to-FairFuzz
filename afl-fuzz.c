@@ -8936,7 +8936,6 @@ int main(int argc, char** argv) {
       }
 
       show_stats();
-      dump_hits();
 
       if (not_on_tty) {
         ACTF("Entering queue cycle %llu.", queue_cycle);
@@ -8960,6 +8959,8 @@ int main(int argc, char** argv) {
     }
 
     skipped_fuzz = fuzz_one(use_argv);
+
+    dump_hits();
 
     if (!stop_soon && sync_id && !skipped_fuzz) {
       
