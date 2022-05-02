@@ -3761,22 +3761,6 @@ static void write_stats_file(double bitmap_cvg, double stability, double eps) {
               persistent_mode || deferred_mode) ? "" : "default",
              orig_cmdline, slowest_exec_ms);
              /* ignore errors */
-
-  /* Get rss value from the children
-     We must have killed the forkserver process and called waitpid
-     before calling getrusage */
-  if (getrusage(RUSAGE_CHILDREN, &usage)) {
-      WARNF("getrusage failed");
-  } else if (usage.ru_maxrss == 0) {
-    fprintf(f, "peak_rss_mb       : not available while afl is running\n");
-  } else {
-#ifdef __APPLE__
-    fprintf(f, "peak_rss_mb       : %zu\n", usage.ru_maxrss >> 20);
-#else
-    fprintf(f, "peak_rss_mb       : %zu\n", usage.ru_maxrss >> 10);
-#endif /* ^__APPLE__ */
-  }
-
   fclose(f);
 
 }
@@ -5464,12 +5448,6 @@ static u8 fuzz_one(char** argv) {
 
     if (queue_cur->cal_failed < CAL_CHANCES) {
 
-      /* Reset exec_cksum to tell calibrate_case to re-execute the testcase
-         avoiding the usage of an invalid trace_bits.
-         For more info: https://github.com/AFLplusplus/AFLplusplus/pull/425 */
-
-      queue_cur->exec_cksum = 0;
-
       res = calibrate_case(argv, queue_cur, in_buf, queue_cycle - 1, 0);
 
       if (res == FAULT_ERROR)
@@ -5526,8 +5504,18 @@ static u8 fuzz_one(char** argv) {
   /* Skip deterministic fuzzing if exec path checksum puts this out of scope
      for this master instance. */
 
-  if (master_max && (queue_cur->exec_cksum % master_max) != master_id - 1)
-    goto havoc_stage;
+  if (master_max && (queue_cur->exec_cksum % master_max) != master_id - 1){
+    if (!rb_fuzzing) goto havoc_stage;
+    else{
+      fairfuzz_skip_deterministic = 1; 
+      skip_simple_bitflip = 1;
+
+    }
+  }
+  if (skip_simple_bitflip) {
+    new_hit_cnt = queued_paths + unique_crashes;
+    goto skip_simple_bitflip;
+  }
 
   doing_det = 1;
 
@@ -5637,63 +5625,10 @@ static u8 fuzz_one(char** argv) {
   stage_finds[STAGE_FLIP1]  += new_hit_cnt - orig_hit_cnt;
   stage_cycles[STAGE_FLIP1] += stage_max;
 
-  /* Two walking bits. */
+skip_simple_bitflip:
+  successful_branch_tries = 0;
+  total_branch_tries = 0;
 
-  stage_name  = "bitflip 2/1";
-  stage_short = "flip2";
-  stage_max   = (len << 3) - 1;
-
-  orig_hit_cnt = new_hit_cnt;
-
-  for (stage_cur = 0; stage_cur < stage_max; stage_cur++) {
-
-    stage_cur_byte = stage_cur >> 3;
-
-    FLIP_BIT(out_buf, stage_cur);
-    FLIP_BIT(out_buf, stage_cur + 1);
-
-    if (common_fuzz_stuff(argv, out_buf, len)) goto abandon_entry;
-
-    FLIP_BIT(out_buf, stage_cur);
-    FLIP_BIT(out_buf, stage_cur + 1);
-
-  }
-
-  new_hit_cnt = queued_paths + unique_crashes;
-
-  stage_finds[STAGE_FLIP2]  += new_hit_cnt - orig_hit_cnt;
-  stage_cycles[STAGE_FLIP2] += stage_max;
-
-  /* Four walking bits. */
-
-  stage_name  = "bitflip 4/1";
-  stage_short = "flip4";
-  stage_max   = (len << 3) - 3;
-
-  orig_hit_cnt = new_hit_cnt;
-
-  for (stage_cur = 0; stage_cur < stage_max; stage_cur++) {
-
-    stage_cur_byte = stage_cur >> 3;
-
-    FLIP_BIT(out_buf, stage_cur);
-    FLIP_BIT(out_buf, stage_cur + 1);
-    FLIP_BIT(out_buf, stage_cur + 2);
-    FLIP_BIT(out_buf, stage_cur + 3);
-
-    if (common_fuzz_stuff(argv, out_buf, len)) goto abandon_entry;
-
-    FLIP_BIT(out_buf, stage_cur);
-    FLIP_BIT(out_buf, stage_cur + 1);
-    FLIP_BIT(out_buf, stage_cur + 2);
-    FLIP_BIT(out_buf, stage_cur + 3);
-
-  }
-
-  new_hit_cnt = queued_paths + unique_crashes;
-
-  stage_finds[STAGE_FLIP4]  += new_hit_cnt - orig_hit_cnt;
-  stage_cycles[STAGE_FLIP4] += stage_max;
 
   /* Effector map setup. These macros calculate:
 
@@ -6431,8 +6366,8 @@ skip_interest:
           !memcmp(extras[j].data, out_buf + i, extras[j].len) ||
           !memchr(eff_map + EFF_APOS(i), 1, EFF_SPAN_ALEN(i, extras[j].len))) {
 
-        skip_flag = true;
-
+        stage_max--;
+        continue;
       }
 
       /* Fairfuzz !okToMutate */
@@ -6474,7 +6409,7 @@ skip_interest:
   stage_name  = "user extras (insert)";
   stage_short = "ext_UI";
   stage_cur   = 0;
-  stage_max   = extras_cnt * (len + 1);
+  stage_max   = extras_cnt * len;
 
   orig_hit_cnt = new_hit_cnt;
 
@@ -6488,6 +6423,11 @@ skip_interest:
 
       if (len + extras[j].len > MAX_FILE) {
         stage_max--; 
+        continue;
+      }
+
+      if (!(branch_mask[i] & 4) ){
+        stage_max--;
         continue;
       }
 
@@ -6547,7 +6487,8 @@ skip_user_extras:
           !memcmp(a_extras[j].data, out_buf + i, a_extras[j].len) ||
           !memchr(eff_map + EFF_APOS(i), 1, EFF_SPAN_ALEN(i, a_extras[j].len))) {
 
-        skip_flag = true;
+        stage_max--;
+        continue;
 
       }
 
@@ -6591,6 +6532,9 @@ skip_extras:
      in the .state/ directory. */
 
   if (!queue_cur->passed_det) mark_as_det_done(queue_cur);
+
+  successful_branch_tries = 0;
+  total_branch_tries = 0;
 
   /****************
    * RANDOM HAVOC *
@@ -7176,7 +7120,6 @@ retry_splicing:
     out_buf = ck_alloc_nozero(len);
     memcpy(out_buf, in_buf, len);
 
-    // @RB@ handle the branch mask
     position_map = ck_realloc(position_map, sizeof(u32) * (len+1));
     if (!position_map)
       PFATAL("Failure resizing position_map.\n");
