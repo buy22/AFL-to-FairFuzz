@@ -375,7 +375,7 @@ void fileonly (char const *fmt, ...) {
    each branch to log */
 static void dump_hits() {
   s32 file = -1;
-  u8* path = alloc_printf("%s/branch-hits%d.bin", out_dir, dump_index);
+  u8* path = alloc_printf("%s/branch-hits.bin", out_dir);
   unlink(path);
   file = open(path, O_CREAT | O_WRONLY | O_TRUNC, 0600);
   if (file < 0) PFATAL("Unable to create '%s'", path);
@@ -8909,7 +8909,6 @@ int main(int argc, char** argv) {
 
   
   while (1) {
-    dump_hits();
     u8 skipped_fuzz;
 
     cull_queue();
