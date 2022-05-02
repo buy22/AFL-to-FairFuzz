@@ -4942,6 +4942,103 @@ EXP_ST u8 common_fuzz_stuff(char** argv, u8* out_buf, u32 len) {
 }
 
 
+static u32 trim_case_rb(char** argv, u8* in_buf, u32 in_len, u8* out_buf) {
+
+  DEBUG1 ("entering RB trim, len is %i\n", in_len);
+
+  if (rb_fuzzing == 0){
+    // @RB@ this should not happen. 
+    return in_len;
+  }
+
+  static u8 tmp[64];
+
+  u8  fault = 0;
+  u32 trim_exec = 0;
+  u32 remove_len;
+  u32 len_p2;
+
+  /* Although the trimmer will be less useful when variable behavior is
+     detected, it will still work to some extent, so we don't check for
+     this. */
+
+  if (in_len < 5) return 0;
+
+  stage_name = tmp;
+  stage_short= "rbtrim";
+  // CAROTODO: what is this, update later
+  //bytes_trim_in += in_len;
+
+  /* Select initial chunk len, starting with large steps. */
+
+  len_p2 = next_p2(in_len);
+
+  // CAROTODO: could make TRIM_START_STEPS smaller   
+  remove_len = MAX(len_p2 / TRIM_START_STEPS, TRIM_MIN_BYTES);
+
+  /* Continue until the number of steps gets too high or the stepover
+     gets too small. */
+
+  while (remove_len >= MAX(len_p2 / TRIM_END_STEPS, TRIM_MIN_BYTES)) {
+
+    // why doesn't this start at 0?
+    // u32 remove_pos = remove_len;
+    u32 remove_pos = 0;
+
+    sprintf(tmp, "rb trim %s/%s", DI(remove_len), DI(remove_len));
+
+    stage_cur = 0;
+    stage_max = in_len / remove_len;
+
+    while (remove_pos < in_len) {
+
+      u32 trim_avail = MIN(remove_len, in_len - remove_pos);
+
+      //write_with_gap(in_buf, q->len, remove_pos, trim_avail);
+      // HEAD
+      memcpy(out_buf, in_buf, remove_pos);
+      // TAIL
+      memcpy(out_buf + remove_pos, in_buf + remove_pos + trim_avail, in_len - remove_pos - trim_avail);
+
+      // not actually fault...
+      /* using common fuzz stuff prevents us from having to mess with
+         permanent changes to the queue */
+      fault = common_fuzz_stuff(argv, out_buf, in_len - trim_avail);
+   
+      // Not sure if we want this given that fault is no longer a fault
+      if (stop_soon || fault == FAULT_ERROR) goto abort_rb_trimming;
+
+      // if successfully hit branch of interest...
+      if (hits_branch(rb_fuzzing - 1)) {
+        // (0) calclength of tail
+        u32 move_tail = in_len - remove_pos - trim_avail;
+        // (1) reduce length by how much was trimmed
+        in_len -= trim_avail;
+
+        // (2) update the closest power of 2 len
+        len_p2  = next_p2(in_len);
+        memmove(in_buf + remove_pos, in_buf + remove_pos + trim_avail, 
+                move_tail);
+          
+      } else remove_pos += remove_len;
+
+
+      if (!(trim_exec++ % stats_update_freq)) show_stats();
+      stage_cur++;
+      /* Note that we don't keep track of crashes or hangs here; maybe TODO? */
+      }
+
+
+    remove_len >>= 1;
+    }
+  
+abort_rb_trimming:
+  //@RM@ TODO: update later
+ // bytes_trim_out += in_len;
+  DEBUG1 ("output of rb trimming has len %i\n", in_len);
+  return in_len;
+
+}
 /* Helper to choose random block len for block operations in fuzz_one().
    Doesn't return zero, provided that max_len is > 0. */
 
@@ -5484,6 +5581,24 @@ static u8 fuzz_one(char** argv) {
   // trim
   u32 orig_bitmap_size = queue_cur->bitmap_size;
   u64 orig_exec_us = queue_cur->exec_us;
+
+  if (rb_fuzzing && trim_for_branch) {
+
+    u32 trim_len = trim_case_rb(argv, in_buf, len, out_buf);
+    if (trim_len > 0){
+      len = trim_len;
+      /* this is kind of an unfair time measurement because the
+         one in calibrate includes a lot of other loop stuff*/
+      u64 start_time = get_cur_time_us();
+      write_to_testcase(in_buf, len);
+      run_target(argv, exec_tmout);
+      /* we are setting these to get a more accurate performance score */
+      queue_cur->exec_us = get_cur_time_us() - start_time;
+      queue_cur->bitmap_size = count_bytes(trace_bits);
+
+    }
+
+  }
 
   memcpy(out_buf, in_buf, len);
 
@@ -6688,6 +6803,7 @@ skip_user_extras:
         for (int shift = 0; shift < a_extras[j].len; shift++){
           if(!(branch_mask[i+shift] & 1)){
             skip_flag = true;
+            break;
           }
         }
       }
