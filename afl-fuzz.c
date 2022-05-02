@@ -551,21 +551,8 @@ static void bind_to_free_cpu(void) {
   }
 
   closedir(d);
-  if (cpu_to_bind_given) {
 
-    if (cpu_to_bind >= cpu_core_count)
-      FATAL("The CPU core id to bind should be between 0 and %u", cpu_core_count - 1);
-    
-    if (cpu_used[cpu_to_bind])
-      FATAL("The CPU core #%u to bind is not free!", cpu_to_bind);
-
-    i = cpu_to_bind;
-    
-  } else {
-
-    for (i = 0; i < cpu_core_count; i++) if (!cpu_used[i]) break;
-    
-  }
+  for (i = 0; i < cpu_core_count; i++) if (!cpu_used[i]) break;
 
   if (i == cpu_core_count) {
 
@@ -3732,8 +3719,7 @@ static void write_stats_file(double bitmap_cvg, double stability, double eps) {
              "afl_banner        : %s\n"
              "afl_version       : " VERSION "\n"
              "target_mode       : %s%s%s%s%s%s%s\n"
-             "command_line      : %s\n"
-             "slowest_exec_ms   : %llu\n",
+             "command_line      : %s\n",
              start_time / 1000, get_cur_time() / 1000, getpid(),
              queue_cycle ? (queue_cycle - 1) : 0, total_execs, eps,
              queued_paths, queued_favored, queued_discovered, queued_imported,
@@ -3747,7 +3733,7 @@ static void write_stats_file(double bitmap_cvg, double stability, double eps) {
              persistent_mode ? "persistent " : "", deferred_mode ? "deferred " : "",
              (qemu_mode || dumb_mode || no_forkserver || crash_mode ||
               persistent_mode || deferred_mode) ? "" : "default",
-             orig_cmdline, slowest_exec_ms);
+             orig_cmdline);
              /* ignore errors */
   fclose(f);
 
