@@ -3674,7 +3674,7 @@ static void find_timeout(void) {
   off = strstr(tmp, "exec_timeout      : ");
   if (!off) return;
 
-  ret = atoi(off + 20);
+  ret = atoi(off + 17);
   if (ret <= 4) return;
 
   exec_tmout = ret;
@@ -3688,7 +3688,6 @@ static void find_timeout(void) {
 static void write_stats_file(double bitmap_cvg, double stability, double eps) {
 
   static double last_bcvg, last_stab, last_eps;
-  static struct rusage usage;
 
   u8* fn = alloc_printf("%s/fuzzer_stats", out_dir);
   s32 fd;
@@ -5311,28 +5310,32 @@ static u8 fuzz_one(char** argv) {
 
 #else
 
-  if (pending_favored) {
+  if (vanilla_afl){
 
-    /* If we have any favored, non-fuzzed new arrivals in the queue,
-       possibly skip to them at the expense of already-fuzzed or non-favored
-       cases. */
+    if (pending_favored) {
 
-    if ((queue_cur->was_fuzzed || !queue_cur->favored) &&
-        UR(100) < SKIP_TO_NEW_PROB) return 1;
+      /* If we have any favored, non-fuzzed new arrivals in the queue,
+        possibly skip to them at the expense of already-fuzzed or non-favored
+        cases. */
 
-  } else if (!dumb_mode && !queue_cur->favored && queued_paths > 10) {
+      if ((queue_cur->was_fuzzed || !queue_cur->favored) &&
+          UR(100) < SKIP_TO_NEW_PROB) return 1;
 
-    /* Otherwise, still possibly skip non-favored cases, albeit less often.
-       The odds of skipping stuff are higher for already-fuzzed inputs and
-       lower for never-fuzzed entries. */
+    } else if (!dumb_mode && !queue_cur->favored && queued_paths > 10) {
 
-    if (queue_cycle > 1 && !queue_cur->was_fuzzed) {
+      /* Otherwise, still possibly skip non-favored cases, albeit less often.
+        The odds of skipping stuff are higher for already-fuzzed inputs and
+        lower for never-fuzzed entries. */
 
-      if (UR(100) < SKIP_NFAV_NEW_PROB) return 1;
+      if (queue_cycle > 1 && !queue_cur->was_fuzzed) {
 
-    } else {
+        if (UR(100) < SKIP_NFAV_NEW_PROB) return 1;
 
-      if (UR(100) < SKIP_NFAV_OLD_PROB) return 1;
+      } else {
+
+        if (UR(100) < SKIP_NFAV_OLD_PROB) return 1;
+
+      }
 
     }
 
@@ -5496,6 +5499,14 @@ static u8 fuzz_one(char** argv) {
    *********************/
 
   orig_perf = perf_score = calculate_score(queue_cur);
+  orig_total_execs = total_execs;
+
+  if (rb_fuzzing && trim_for_branch){
+    /* restoring these because the changes to the test case 
+     were not permanent */
+    queue_cur->bitmap_size = orig_bitmap_size;
+    queue_cur->exec_us =  orig_exec_us;
+  }
 
   /* Skip right away if -d is given, if we have done deterministic fuzzing on
      this entry ourselves (was_fuzzed), or if it has gone through deterministic
