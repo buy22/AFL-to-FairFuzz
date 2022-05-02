@@ -156,7 +156,7 @@ static u64 hit_bits[MAP_SIZE];        /* @RB@ Hits to every basic block transiti
 EXP_ST u8  virgin_bits[MAP_SIZE],     /* Regions yet untouched by fuzzing */
            virgin_tmout[MAP_SIZE],    /* Bits we haven't seen in tmouts   */
            virgin_crash[MAP_SIZE];    /* Bits we haven't seen in crashes  */
-
+static s32 dump_index = 0;  
 static u8  var_bytes[MAP_SIZE];       /* Bytes that appear to be variable */
 
 static s32 shm_id;                    /* ID of the SHM region             */
@@ -375,10 +375,11 @@ void fileonly (char const *fmt, ...) {
    each branch to log */
 static void dump_hits() {
   s32 file = -1;
-  u8* path = alloc_printf("%s/branch-hits.bin", out_dir);
+  u8* path = alloc_printf("%s/branch-hits%d.bin", out_dir, dump_index);
   unlink(path);
   file = open(path, O_CREAT | O_WRONLY | O_TRUNC, 0600);
   if (file < 0) PFATAL("Unable to create '%s'", path);
+  dump_index++;
   ck_write(file, hit_bits, sizeof(u64) * MAP_SIZE, path);
   ck_free(path);
   close(file); 
@@ -8976,7 +8977,7 @@ int main(int argc, char** argv) {
   }
 
   if (queue_cur) show_stats();
-
+  dump_hits();
   write_bitmap();
   write_stats_file(0, 0, 0);
   save_auto();
