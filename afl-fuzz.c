@@ -5603,7 +5603,8 @@ static u8 fuzz_one(char** argv) {
   }
 
 
-  // @RB@: allocate the branch mask
+
+  // allocate the branch mask
   if (vanilla_afl || (use_branch_mask == 0)){
       branch_mask = alloc_branch_mask(len + 1);
       orig_branch_mask = alloc_branch_mask(len + 1);
