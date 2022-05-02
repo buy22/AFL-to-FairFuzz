@@ -7310,18 +7310,18 @@ retry_splicing:
     out_buf = ck_alloc_nozero(len);
     memcpy(out_buf, in_buf, len);
 
-    position_map = ck_realloc(position_map, sizeof(u32) * (len+1));
-    if (!position_map)
-      PFATAL("Failure resizing position_map.\n");
-
-    ck_free(orig_branch_mask);
-    orig_branch_mask = ck_alloc(len +1);
-
     new_branch_mask = alloc_branch_mask(len + 1);
+
     memcpy(new_branch_mask, branch_mask, MIN(split_at, temp_len + 1));
     ck_free(branch_mask);
     branch_mask = new_branch_mask;
+    ck_free(orig_branch_mask);
+    orig_branch_mask = ck_alloc(len +1);
+    //ck_realloc(orig_branch_mask, len + 1);
     memcpy (orig_branch_mask, branch_mask, len + 1);
+    position_map = ck_realloc(position_map, sizeof (u32) * (len + 1));
+    if (!position_map)
+      PFATAL("Failure resizing position_map.\n");
 
     goto havoc_stage;
 
@@ -8490,11 +8490,11 @@ int main(int argc, char** argv) {
   gettimeofday(&tv, &tz);
   srandom(tv.tv_sec ^ tv.tv_usec ^ getpid());
 
-  while ((opt = getopt(argc, argv, "+zq:ri:o:f:m:t:T:dnCB:S:M:x:Q")) > 0)
+  while ((opt = getopt(argc, argv, "+bq:ri:o:f:m:t:T:dnCB:S:M:x:Q")) > 0)
 
     switch (opt) {
 
-      case 'z': /* disable use of branch mask */
+      case 'b': /* disable use of branch mask */
         use_branch_mask = false;
         break;
 
