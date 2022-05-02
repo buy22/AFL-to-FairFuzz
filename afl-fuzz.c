@@ -5732,7 +5732,7 @@ skip_simple_bitflip:
 
 
   /* add/delete map in this stage */
-  if (rb_fuzzing && !shadow_mode && use_branch_mask > 0){
+  if (rb_fuzzing && use_branch_mask > 0){
     
     // buffer to clobber with new things
     u8* tmp_buf = ck_alloc(len+1);
@@ -5795,7 +5795,7 @@ skip_simple_bitflip:
     DEBUG1("adding branch %i to blacklist\n", rb_fuzzing-1);
   }
   /* @RB@ reset stats for debugging*/
-  DEBUG1("%swhile calibrating, %i of %i tries hit branch %i\n", shadow_prefix, successful_branch_tries, total_branch_tries, rb_fuzzing - 1);
+  // DEBUG1("%swhile calibrating, %i of %i tries hit branch %i\n", shadow_prefix, successful_branch_tries, total_branch_tries, rb_fuzzing - 1);
   DEBUG1("%scalib stage: %i new coverage in %i total execs\n", shadow_prefix, queued_discovered-orig_queued_discovered, total_execs-orig_total_execs);
   DEBUG1("%scalib stage: %i new branches in %i total execs\n", shadow_prefix, queued_with_cov-orig_queued_with_cov, total_execs-orig_total_execs);
   successful_branch_tries = 0;
@@ -5803,7 +5803,7 @@ skip_simple_bitflip:
 
   // @RB@ TODO: skip to havoc (or dictionary add?) if can't modify any bytes 
 
-  if (rb_skip_deterministic) goto havoc_stage;
+  if (fairfuzz_skip_deterministic) goto havoc_stage;
 
   /* Two walking bits. */
 
