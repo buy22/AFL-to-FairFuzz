@@ -152,7 +152,7 @@ static s32 forksrv_pid,               /* PID of the fork server           */
            out_dir_fd = -1;           /* FD of the lock file              */
 
 EXP_ST u8* trace_bits;                /* SHM with instrumentation bitmap  */
-static u64 hit_bits[MAP_SIZE];        /* @RB@ Hits to every basic block transition */
+static u64 hit_bits[MAP_SIZE];        /* Hits to every basic block transition */
 EXP_ST u8  virgin_bits[MAP_SIZE],     /* Regions yet untouched by fuzzing */
            virgin_tmout[MAP_SIZE],    /* Bits we haven't seen in tmouts   */
            virgin_crash[MAP_SIZE];    /* Bits we haven't seen in crashes  */
@@ -299,7 +299,7 @@ static u8* (*post_handler)(u8* buf, u32* len);
 static u32 vanilla_afl = 1000; /* How many executions to conduct in vanilla AFL mode               */
 static u32 rb_fuzzing = 0;
 static u32 MAX_RARE_BRANCHES = 256;
-static int max_rare_branch_bits = 4;
+static int rare_branch_threshold = 4;
 static u32 total_branch_tries = 0;
 static u32 successful_branch_tries = 0;
 bool use_branch_mask = true;
@@ -862,29 +862,29 @@ static int* get_rare_branch_ids() {
   int num_rare_branches = 0;
 
   for (int i = 0; (i < MAP_SIZE) && (num_rare_branches < MAX_RARE_BRANCHES - 1); i++){
-    // ignore unseen branches. sparse array -> unlikely 
-    if (unlikely(hit_bits[i] > 0)) {
+    // ignore unseen branches
+    if (hit_bits[i] > 0) {
       if (find_id(i, blacklist)) continue;
-      unsigned int long curent_hits = hit_bits[i];
       int highest_order_bit = 0;
-      while(curent_hits >>= 1) highest_order_bit++;
+      while(hit_bits[i] >>= 1) highest_order_bit++;
+      // lowest_hi_bits + 1 is the threshold for the next batch of rare braches
+      // in case no rare branch is found
       if (highest_order_bit < lowest_hi_bits) lowest_hi_bits = highest_order_bit;
-      if (highest_order_bit < max_rare_branch_bits){
-        if (highest_order_bit < max_rare_branch_bits - 1){
-          max_rare_branch_bits = highest_order_bit + 1;
+      if (highest_order_bit < rare_branch_threshold){
+        if (highest_order_bit < rare_branch_threshold - 1){
+          rare_branch_threshold = highest_order_bit + 1;
           num_rare_branches = 0;
         }
         rare_branch_ids[num_rare_branches] = i;
         num_rare_branches++;
       }
-
     }
   }
 
   if (num_rare_branches == 0){
     if (lowest_hi_bits != INT_MAX) {
-      max_rare_branch_bits = lowest_hi_bits + 1;
-      DEBUG1("Raised max_rare_branch_bits to %i\n", max_rare_branch_bits);
+      rare_branch_threshold = lowest_hi_bits + 1;
+      DEBUG1("Raised rare_branch_threshold to %i\n", rare_branch_threshold);
       ck_free(rare_branch_ids);
       return get_rare_branch_ids();
     }
