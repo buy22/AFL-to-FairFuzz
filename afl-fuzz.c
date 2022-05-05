@@ -6032,18 +6032,22 @@ skip_simple_bitflip:
 
   for (i = 0; i < len - 1; i++) {
 
+    bool skip_flag = false;
+
     /* Let's consult the effector map... */
 
-    if (!eff_map[EFF_APOS(i)] && !eff_map[EFF_APOS(i + 1)]) {
+    if (!eff_map[EFF_APOS(i)] && !eff_map[EFF_APOS(i + 1)])
+      skip_flag = true;
+
+    /* FairFuzz okToMutate */
+
+    if (rb_fuzzing)
+      if (!(branch_mask[i] & 1) || !(branch_mask[i+1] & 1) )
+        skip_flag = true;
+
+    if(skip_flag){
       stage_max--;
       continue;
-    }
-    if (rb_fuzzing ){
-      // skip if either byte will modify the branch
-      if (!(branch_mask[i] & 1) || !(branch_mask[i+1] & 1) ){
-        stage_max--;
-        continue;
-      }
     }
 
     stage_cur_byte = i;
@@ -6674,8 +6678,7 @@ skip_interest:
           !memcmp(extras[j].data, out_buf + i, extras[j].len) ||
           !memchr(eff_map + EFF_APOS(i), 1, EFF_SPAN_ALEN(i, extras[j].len))) {
 
-        stage_max--;
-        continue;
+        skip_flag = true;
       }
 
       /* Fairfuzz !okToMutate */
@@ -6729,12 +6732,18 @@ skip_interest:
 
     for (j = 0; j < extras_cnt; j++) {
 
+      bool skip_flag = false;
+
       if (len + extras[j].len > MAX_FILE) {
-        stage_max--; 
-        continue;
+        skip_flag = true;
       }
 
+      /* Fairfuzz !okToMutate */
       if (!(branch_mask[i] & 4) ){
+        skip_flag = true;
+      }
+
+      if(skip_flag){
         stage_max--;
         continue;
       }
@@ -6795,8 +6804,7 @@ skip_user_extras:
           !memcmp(a_extras[j].data, out_buf + i, a_extras[j].len) ||
           !memchr(eff_map + EFF_APOS(i), 1, EFF_SPAN_ALEN(i, a_extras[j].len))) {
 
-        stage_max--;
-        continue;
+        skip_flag = true;
 
       }
 
