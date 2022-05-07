@@ -860,11 +860,11 @@ static int* get_rare_branch_ids(){
       while(cur_hits >>=1)
           highest_order_bit++;
       lowest_hob = highest_order_bit < lowest_hob ? highest_order_bit : lowest_hob;
-      if (highest_order_bit < rare_branch_exp){
+      if (highest_order_bit < rare_branch_threshold){
         // if we are an order of magnitude smaller, prioritize the
         // rarer branches
-        if (highest_order_bit < rare_branch_exp - 1){
-          rare_branch_exp = highest_order_bit + 1;
+        if (highest_order_bit < rare_branch_threshold - 1){
+          rare_branch_threshold = highest_order_bit + 1;
           // everything else that came before had way more hits
           // than this one, so remove from list
           ret_list_size = 0;
@@ -879,8 +879,8 @@ static int* get_rare_branch_ids(){
   if (ret_list_size == 0){
     DEBUG1("Was returning list of size 0\n");
     if (lowest_hob != INT_MAX) {
-      rare_branch_exp = lowest_hob + 1;
-      DEBUG1("Upped max exp to %i\n", rare_branch_exp);
+      rare_branch_threshold = lowest_hob + 1;
+      DEBUG1("Upped max exp to %i\n", rare_branch_threshold);
       ck_free(rare_branch_ids);
       return get_rare_branch_ids();
     }
