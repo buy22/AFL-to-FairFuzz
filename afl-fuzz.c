@@ -854,7 +854,7 @@ static int* get_rare_branch_ids(){
   for (int i = 0; (i < MAP_SIZE) && (ret_list_size < MAX_RARE_BRANCHES - 1); i++){
     // ignore unseen branches. sparse array -> unlikely 
     if (unlikely(hit_bits[i] > 0)){
-      if (contains_id(i, blacklist)) continue;
+      if (find_id(i, blacklist)) continue;
       unsigned int long cur_hits = hit_bits[i];
       int highest_order_bit = 0;
       while(cur_hits >>=1)
@@ -911,7 +911,7 @@ static u32 * is_rare_hit(u8* trace_bits_mini){
 ;
       if (unlikely (trace_bits_mini[i >> 3]  & (1 <<(i & 7)) )){
         int cur_index = i;
-        int is_rare = contains_id(cur_index, rarest_branches);
+        int is_rare = find_id(cur_index, rarest_branches);
         if (is_rare) {
           // at loop initialization, set min_branch_hit properly
           if (!min_hit_index) {
