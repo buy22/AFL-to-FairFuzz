@@ -450,19 +450,12 @@ static void shuffle_ptrs(void** ptrs, u32 cnt) {
 
 }
 
-static inline u8* alloc_branch_mask(u32 size) {
-
-  u8* mem;
-
-  if (!size) return NULL;
-  mem = ck_alloc_nozero(size);
-
-  memset(mem, 7, size);
-
-  mem[size - 1] = 4;
-
-  return mem;
-
+static inline u8* alloc_branch_mask(u32 s) {
+  if (!s) return NULL;
+  u8* m = ck_alloc_nozero(s);
+  memset(m, 7, s);
+  m[s - 1] = 4;
+  return m;
 }
 
 
@@ -863,7 +856,7 @@ static int* get_rare_branch_ids() {
 
   for (int i = 0; (i < MAP_SIZE) && (num_rare_branches < MAX_RARE_BRANCHES - 1); i++){
     // ignore unseen branches
-    if (hit_bits[i] > 0) {
+    if (unlikely(hit_bits[i] > 0)) {
       if (find_id(i, blacklist)) continue;
       int highest_order_bit = 0;
       while(hit_bits[i] >>= 1) highest_order_bit++;
