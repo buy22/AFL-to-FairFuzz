@@ -303,8 +303,8 @@ static int rare_branch_threshold = 4;
 static u32 total_branch_tries = 0;
 static u32 successful_branch_tries = 0;
 bool use_branch_mask = true;
-static int prev_cycle_branch_changed = 0;
-static int cycle_branch_changed = 0;
+static int prev_cycle_wo_new = 0;
+static int cycle_wo_new = 0;
 static int bootstrap = 0;
 static u8 skip_deterministic_bootstrap = 0;
 static int * blacklist; 
@@ -5603,31 +5603,10 @@ static u8 fuzz_one(char** argv) {
   }
 
 
-  /* @RB@ */
-re_run: // re-run when running in shadow mode
-  if (rb_fuzzing){
-    if (run_with_shadow && !shadow_mode){
-      shadow_mode = 1;
-      virgin_virgin_bits = ck_alloc(MAP_SIZE);
-      memcpy(virgin_virgin_bits, virgin_bits, MAP_SIZE);
-      shadow_prefix = "PLAIN AFL: ";
-    } else if (run_with_shadow && shadow_mode) {
-      // reset all stats. nothing is added to queue.  
-      shadow_mode = 0;
-      queued_discovered = orig_queued_discovered;
-      queued_with_cov = orig_queued_with_cov;
-      perf_score = orig_perf; //NOTE: this line is not stricly necessary. 
-      total_execs = orig_total_execs;
-      memcpy(virgin_bits, virgin_virgin_bits, MAP_SIZE);
-      ck_free(virgin_virgin_bits);
-      shadow_prefix = "RB: ";
-    }
-
-  }
 
   // @RB@: allocate the branch mask
 
-  if (vanilla_afl || shadow_mode || (use_branch_mask == 0)){
+  if (vanilla_afl || (use_branch_mask == 0)){
       branch_mask = alloc_branch_mask(len + 1);
       orig_branch_mask = alloc_branch_mask(len + 1);
   } else {
@@ -5649,7 +5628,7 @@ re_run: // re-run when running in shadow mode
      for this master instance. */
 
   if (master_max && (queue_cur->exec_cksum % master_max) != master_id - 1) {
-    if (!rb_fuzzing || shadow_mode) goto havoc_stage;
+    if (!rb_fuzzing) goto havoc_stage;
     // skip all but branch mask creation if we're RB fuzzing
     else {
       rb_skip_deterministic=1; 
@@ -5822,7 +5801,7 @@ skip_simple_bitflip:
 
     if (common_fuzz_stuff(argv, out_buf, len)) goto abandon_entry;
 
-    if (rb_fuzzing && !shadow_mode && use_branch_mask > 0)
+    if (rb_fuzzing && use_branch_mask > 0)
       if (hits_branch(rb_fuzzing - 1)){
         branch_mask[stage_cur] = 1;
      }
@@ -5880,7 +5859,7 @@ skip_simple_bitflip:
   stage_cycles[STAGE_FLIP8] += stage_max;
 
   /* @RB@ also figure out add/delete map in this stage */
-  if (rb_fuzzing && !shadow_mode && use_branch_mask > 0){
+  if (rb_fuzzing && use_branch_mask > 0){
     
     // buffer to clobber with new things
     u8* tmp_buf = ck_alloc(len+1);
@@ -7496,7 +7475,6 @@ abandon_entry:
   total_branch_tries = 0;
   DEBUG1("%shavoc stage: %i new coverage in %i total execs\n", shadow_prefix, queued_discovered-orig_queued_discovered, total_execs-orig_total_execs);
   DEBUG1("%shavoc stage: %i new branches in %i total execs\n", shadow_prefix, queued_with_cov-orig_queued_with_cov, total_execs-orig_total_execs);
-  if (shadow_mode) goto re_run;
 
   if (queued_with_cov-orig_queued_with_cov){
     prev_cycle_wo_new = 0;
@@ -8949,13 +8927,13 @@ int main(int argc, char** argv) {
 
     if (!queue_cur) {
       DEBUG1("Entering new queueing cycle\n");
-      if (prev_cycle_branch_changed && (bootstrap == 3)){
+      if (prev_cycle_wo_new && (bootstrap == 3)){
         // only bootstrap for 1 cycle
-        prev_cycle_branch_changed = 0;
+        prev_cycle_wo_new = 0;
       } else {
-        prev_cycle_branch_changed = cycle_branch_changed;
+        prev_cycle_wo_new = cycle_wo_new;
       }
-      cycle_branch_changed = 1;
+      cycle_wo_new = 1;
 
       queue_cycle++;
       current_entry     = 0;
