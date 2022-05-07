@@ -375,7 +375,6 @@ static void dump_hits() {
   unlink(path);
   file = open(path, O_CREAT | O_WRONLY | O_TRUNC, 0600);
   if (file < 0) PFATAL("Unable to create '%s'", path);
-  dump_index++;
   ck_write(file, hit_bits, sizeof(u64) * MAP_SIZE, path);
   ck_free(path);
   close(file); 
