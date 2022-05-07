@@ -902,7 +902,7 @@ static int hits_branch(int branch_id){
 // else returns a list of all the rare branches hit
 // by the mini trace bits, in decreasing order of rarity
 static u32 * is_rare_hit(u8* trace_bits_mini){
-  int * rarest_branches = get_lowest_hit_branch_ids();
+  int * rarest_branches = get_rare_branch_ids();
   u32 * branch_ids = ck_alloc(sizeof(u32) * MAX_RARE_BRANCHES);
   u32 * branch_cts = ck_alloc(sizeof(u32) * MAX_RARE_BRANCHES);
   int min_hit_index = 0;
