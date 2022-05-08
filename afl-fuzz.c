@@ -6890,8 +6890,13 @@ havoc_stage:
     u32 mutate_pos;
  
     for (i = 0; i < use_stacking; i++) {
-
-      switch (UR(15 + ((extras_cnt + a_extras_cnt) ? 2 : 0))) {
+      u32 rand_seed = UR(15 + ((extras_cnt + a_extras_cnt) ? 2 : 0));
+      /* Slightly modify case 10 poss */
+      if(rand_seed == 10)
+        if(UR(3))
+          rand_seed = UR(15); /* Should not consider extra present */
+      
+      switch (rand_seed) {
 
         case 0:
 
@@ -7060,6 +7065,9 @@ havoc_stage:
           /* Just set a random byte to a random value. Because,
              why not. We use XOR with 1-255 to eliminate the
              possibility of a no-op. */
+          /* We slightly decrease the chance of this case as we
+             believe in rare-branches this might not be a goold
+             mutants */
           mutate_pos = pos_to_mutate(8, 1, temp_len, branch_mask, position_map);
           if(mutate_pos != 0xffffffff) out_buf[mutate_pos] ^= 1 + UR(255);
           break;
