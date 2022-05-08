@@ -837,8 +837,9 @@ static void mark_as_redundant(struct queue_entry* q, u8 state) {
 
 
 
-/* True if branch_ids contains certain id*/
+// returns if branch_ids have the id we need
 static bool find_id(int id, int* branch_ids) {
+  // -1 marks the end of the array
   for (int i = 0; branch_ids[i] != -1; i++) {
     if (branch_ids[i] == id) return true;
   }
@@ -881,15 +882,15 @@ static int* get_rare_branch_ids() {
     }
   }
 
+  // -1 marks the end of the array
   rare_branch_ids[num_rare_branches] = -1;
   return rare_branch_ids;
 }
 
 
-/* return 0 if current trace bits hits branch with id branch_id,
-  0 otherwise */
-static int hits_branch(int branch_id){
-  return (trace_bits[branch_id] != 0);
+// 
+static bool branch_is_hit(int branch_id){
+  return (trace_bits[branch_id] > 0);
 }
 
 // returns NULL if the trace bits does not hit a rare branch
@@ -4905,7 +4906,7 @@ EXP_ST u8 common_fuzz_stuff(char** argv, u8* out_buf, u32 len) {
 
   if (rb_fuzzing) {
     total_branch_tries++;
-    if (hits_branch(rb_fuzzing - 1)) successful_branch_tries++;
+    if (branch_is_hit(rb_fuzzing - 1)) successful_branch_tries++;
   }
   /* This handles FAULT_ERROR for us: */
 
@@ -4986,7 +4987,7 @@ static u32 trim_case_rb(char** argv, u8* in_buf, u32 in_len, u8* out_buf) {
       if (stop_soon || fault == FAULT_ERROR) goto abort_rb_trimming;
 
       // if successfully hit branch of interest...
-      if (hits_branch(rb_fuzzing - 1)) {
+      if (branch_is_hit(rb_fuzzing - 1)) {
         // (0) calclength of tail
         u32 move_tail = in_len - remove_pos - trim_avail;
         // (1) reduce length by how much was trimmed
@@ -5784,7 +5785,7 @@ skip_simple_bitflip:
     if (common_fuzz_stuff(argv, out_buf, len)) goto abandon_entry;
 
     if (rb_fuzzing && use_branch_mask > 0)
-      if (hits_branch(rb_fuzzing - 1)){
+      if (branch_is_hit(rb_fuzzing - 1)){
         branch_mask[stage_cur] = 1;
      }
 
@@ -5861,7 +5862,7 @@ skip_simple_bitflip:
       if (common_fuzz_stuff(argv, tmp_buf, len - 1)) goto abandon_entry;
 
       /* if even with this byte deleted we hit the branch, can delete here */
-      if (hits_branch(rb_fuzzing - 1)){
+      if (branch_is_hit(rb_fuzzing - 1)){
         branch_mask[stage_cur] += 2;
       }
     }
@@ -5880,7 +5881,7 @@ skip_simple_bitflip:
       if (common_fuzz_stuff(argv, tmp_buf, len + 1)) goto abandon_entry;
 
       /* if adding before still hit branch, can add */
-      if (hits_branch(rb_fuzzing - 1)){
+      if (branch_is_hit(rb_fuzzing - 1)){
         branch_mask[stage_cur] += 4;
       }
 
