@@ -5553,7 +5553,7 @@ static u8 fuzz_one(char** argv) {
 
   }
 
-  // trim
+  // trim from original fairfuzz
   u32 orig_bitmap_size = queue_cur->bitmap_size;
   u64 orig_exec_us = queue_cur->exec_us;
 
@@ -5911,8 +5911,6 @@ skip_simple_bitflip:
   DEBUG1("FairFuzz calib stage: %i new branches in %i total execs\n", queued_with_cov-orig_queued_with_cov, total_execs-orig_total_execs);
   successful_branch_tries = 0;
   total_branch_tries = 0;
-
-  // @RB@ TODO: skip to havoc (or dictionary add?) if can't modify any bytes 
 
   if (fairfuzz_skip_deterministic) goto havoc_stage;
 
@@ -6895,7 +6893,7 @@ havoc_stage:
       if(rand_seed == 10)
         if(UR(3))
           rand_seed = UR(15); /* Should not consider extra present */
-      
+
       switch (rand_seed) {
 
         case 0:
