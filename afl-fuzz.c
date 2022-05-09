@@ -5773,10 +5773,10 @@ skip_simple_bitflip:
 
     if (common_fuzz_stuff(argv, out_buf, len)) goto abandon_entry;
 
+    /* Adding "O" mask if flipbyte would still reach rb */
     if (rb_fuzzing && use_branch_mask > 0)
-      if (branch_is_hit(rb_fuzzing - 1)){
+      if (branch_is_hit(rb_fuzzing - 1))
         branch_mask[stage_cur] = 1;
-     }
 
     /* We also use this stage to pull off a simple trick: we identify
        bytes that seem to have no effect on the current execution path
@@ -5850,7 +5850,9 @@ skip_simple_bitflip:
 
       if (common_fuzz_stuff(argv, tmp_buf, len - 1)) goto abandon_entry;
 
-      /* if even with this byte deleted we hit the branch, can delete here */
+      /* In fact this already mostly include the case where delete to be
+         in the branch, so we don't need extra check on trim */
+      /* Adding "D" mask if delete byte still can reach rb */
       if (branch_is_hit(rb_fuzzing - 1)){
         branch_mask[stage_cur] += 2;
       }
@@ -5869,7 +5871,7 @@ skip_simple_bitflip:
 
       if (common_fuzz_stuff(argv, tmp_buf, len + 1)) goto abandon_entry;
 
-      /* if adding before still hit branch, can add */
+      /* add "I" mask if adding still hit rb */
       if (branch_is_hit(rb_fuzzing - 1)){
         branch_mask[stage_cur] += 4;
       }
