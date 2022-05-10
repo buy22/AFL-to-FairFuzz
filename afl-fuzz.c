@@ -903,8 +903,7 @@ static u32 * is_rare_hit(u8* trace_bits_mini){
             branch_ids[min_index] = index + 1;
           }
           // check if there is a smaller branch than min
-          int cur;
-          for (cur = 0 ; cur < min_index; cur++){
+          for (int cur = 0 ; cur < min_index; cur++){
             if (hit_bits[index] <= branch_hits[cur]){
               memmove(branch_hits + cur + 1, branch_hits + cur, min_index - cur);
               memmove(branch_ids + cur + 1, branch_ids + cur, min_index - cur);
@@ -929,76 +928,59 @@ static u32 * is_rare_hit(u8* trace_bits_mini){
   return branch_ids;
 }
 
-
-/* get a random modifiable position (i.e. where branch_mask & mod_type) 
-   for both overwriting and removal we want to make sure we are overwriting
-   or removing parts within the branch mask
-*/ 
-static u32 pos_to_mutate(u32 num_to_modify, u8 mod_type, u32 map_len, u8* branch_mask, u32 * position_map){
-  u32 ret = 0xffffffff;
-  u32 position_map_len = 0;
-  int prev_start_of_1_block = -1;
-  int in_0_block = 1;
-  for (int i = 0; i < map_len; i ++){
-    if (branch_mask[i] & mod_type){
-      // if the last thing we saw was a zero, set
-      // to start of 1 block
-      if (in_0_block) {
-        prev_start_of_1_block = i;
-        in_0_block = 0;
-      }
-    } else {
-      // for the first 0 we see (unless the eff_map starts with zeroes)
-      // we know the last index was the last 1 in the line
-      if ((!in_0_block) &&(prev_start_of_1_block != -1)){
-        int num_bytes = MAX(num_to_modify/8, 1);
-        for (int j = prev_start_of_1_block; j < i-num_bytes + 1; j++){
-            // I hate this ++ within operator stuff
-            position_map[position_map_len++] = j;
-        }
-
-      }
-      in_0_block = 1;
-    }
-  }
-
-  // if we ended not in a 0 block, add it in too 
-  if (!in_0_block) {
-    u32 num_bytes = MAX(num_to_modify/8, 1);
-    for (u32 j = prev_start_of_1_block; j < map_len-num_bytes + 1; j++){
-        // I hate this ++ within operator stuff
-        position_map[position_map_len++] = j;
-    }
-  }
-
-  if (position_map_len){
-    u32 random_pos = UR(position_map_len);
-    if (num_to_modify >= 8)
-      ret =  position_map[random_pos];
-    else // I think num_to_modify can only ever be 1 if it's less than 8. otherwise need trickier stuff. 
-      ret = position_map[random_pos] + UR(8);
-  } 
-
-  return ret;
-  
-}
-
 // random element of a branch_mask & 4
 static u32 pos_to_insert(u32 map_len, u8* branch_mask, u32 * position_map){
-
-  u32 position_map_len = 0;
-  u32 ret = map_len;
-
+  u32 cur_len = 0; u32 new_pos = map_len;
   for (u32 i = 0; i <= map_len; i++){
-    if (branch_mask[i] & 4)
-      position_map[position_map_len++] = i;
+    if (branch_mask[i] & 4) position_map[cur_len++] = i;
   }
 
-  if (position_map_len){
-    ret = position_map[UR(position_map_len)];
+  if (cur_len) new_pos = position_map[UR(cur_len)];
+  return new_pos;
+}
+
+// random position to mutate
+//  0xffffffff if invalid
+static u32 pos_to_mutate(u32 modify_bits, u8 mod_type, u32 map_len, u8* branch_mask, u32 * position_map){
+  // if unchanged, the mutation shuold be cencelled
+  u32 new_pos = 0xffffffff;
+  u32 cur_len = 0;
+  int pos_1s = -1; int in_0s = 1;
+  for (int i = 0; i < map_len; i ++){
+    if (branch_mask[i] & mod_type){
+      if (in_0s) {
+        pos_1s = i;
+      }
+      in_0s = 0;
+    } else {
+      if ((!in_0s) && (pos_1s != -1)){
+        int num_bytes = MAX(modify_bits/8, 1);
+        for (int j = pos_1s; j < i-num_bytes + 1; j++){
+            position_map[cur_len++] = j;
+        }
+      }
+      in_0s = 1;
+    }
   }
 
-  return ret;
+  // the end is not a 0
+  if (!in_0s) {
+    u32 num_bytes = MAX(modify_bits/8, 1);
+    for (u32 j = pos_1s; j < map_len-num_bytes + 1; j++){
+        position_map[cur_len++] = j;
+    }
+  }
+
+  // got something
+  if (cur_len){
+    u32 random_pos = UR(cur_len);
+    if (modify_bits >= 8)
+      new_pos =  position_map[random_pos];
+    else
+      new_pos = position_map[random_pos] + UR(8);
+  }
+
+  return new_pos;
 }
 
 // when resuming re-increment hit bits
