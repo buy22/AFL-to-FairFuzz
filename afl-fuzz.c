@@ -70,6 +70,11 @@
 #include <sys/ioctl.h>
 #include <sys/file.h>
 
+/* Define Mask to be macro for better extenbility and readability */
+#define _M_ADD 4
+#define _M_DEL 2
+#define _M_FLP 1
+
 #if defined(__APPLE__) || defined(__FreeBSD__) || defined (__OpenBSD__)
 #  include <sys/sysctl.h>
 #endif /* __APPLE__ || __FreeBSD__ || __OpenBSD__ */
@@ -903,7 +908,8 @@ static u32 * is_rare_hit(u8* trace_bits_mini){
             branch_ids[min_index] = index + 1;
           }
           // check if there is a smaller branch than min
-          for (int cur = 0 ; cur < min_index; cur++){
+          int cur;
+          for (cur = 0 ; cur < min_index; cur++){
             if (hit_bits[index] <= branch_hits[cur]){
               memmove(branch_hits + cur + 1, branch_hits + cur, min_index - cur);
               memmove(branch_ids + cur + 1, branch_ids + cur, min_index - cur);
@@ -928,59 +934,76 @@ static u32 * is_rare_hit(u8* trace_bits_mini){
   return branch_ids;
 }
 
-// random element of a branch_mask & 4
-static u32 pos_to_insert(u32 map_len, u8* branch_mask, u32 * position_map){
-  u32 cur_len = 0; u32 new_pos = map_len;
-  for (u32 i = 0; i <= map_len; i++){
-    if (branch_mask[i] & 4) position_map[cur_len++] = i;
-  }
 
-  if (cur_len) new_pos = position_map[UR(cur_len)];
-  return new_pos;
-}
-
-// random position to mutate
-//  0xffffffff if invalid
-static u32 pos_to_mutate(u32 modify_bits, u8 mod_type, u32 map_len, u8* branch_mask, u32 * position_map){
-  // if unchanged, the mutation shuold be cencelled
-  u32 new_pos = 0xffffffff;
-  u32 cur_len = 0;
-  int pos_1s = -1; int in_0s = 1;
+/* get a random modifiable position (i.e. where branch_mask & mod_type) 
+   for both overwriting and removal we want to make sure we are overwriting
+   or removing parts within the branch mask
+*/ 
+static u32 pos_to_mutate(u32 num_to_modify, u8 mod_type, u32 map_len, u8* branch_mask, u32 * position_map){
+  u32 ret = 0xffffffff;
+  u32 position_map_len = 0;
+  int prev_start_of_1_block = -1;
+  int in_0_block = 1;
   for (int i = 0; i < map_len; i ++){
     if (branch_mask[i] & mod_type){
-      if (in_0s) {
-        pos_1s = i;
+      // if the last thing we saw was a zero, set
+      // to start of 1 block
+      if (in_0_block) {
+        prev_start_of_1_block = i;
+        in_0_block = 0;
       }
-      in_0s = 0;
     } else {
-      if ((!in_0s) && (pos_1s != -1)){
-        int num_bytes = MAX(modify_bits/8, 1);
-        for (int j = pos_1s; j < i-num_bytes + 1; j++){
-            position_map[cur_len++] = j;
+      // for the first 0 we see (unless the eff_map starts with zeroes)
+      // we know the last index was the last 1 in the line
+      if ((!in_0_block) &&(prev_start_of_1_block != -1)){
+        int num_bytes = MAX(num_to_modify/8, 1);
+        for (int j = prev_start_of_1_block; j < i-num_bytes + 1; j++){
+            // I hate this ++ within operator stuff
+            position_map[position_map_len++] = j;
         }
+
       }
-      in_0s = 1;
+      in_0_block = 1;
     }
   }
 
-  // the end is not a 0
-  if (!in_0s) {
-    u32 num_bytes = MAX(modify_bits/8, 1);
-    for (u32 j = pos_1s; j < map_len-num_bytes + 1; j++){
-        position_map[cur_len++] = j;
+  // if we ended not in a 0 block, add it in too 
+  if (!in_0_block) {
+    u32 num_bytes = MAX(num_to_modify/8, 1);
+    for (u32 j = prev_start_of_1_block; j < map_len-num_bytes + 1; j++){
+        // I hate this ++ within operator stuff
+        position_map[position_map_len++] = j;
     }
   }
 
-  // got something
-  if (cur_len){
-    u32 random_pos = UR(cur_len);
-    if (modify_bits >= 8)
-      new_pos =  position_map[random_pos];
-    else
-      new_pos = position_map[random_pos] + UR(8);
+  if (position_map_len){
+    u32 random_pos = UR(position_map_len);
+    if (num_to_modify >= 8)
+      ret =  position_map[random_pos];
+    else // I think num_to_modify can only ever be 1 if it's less than 8. otherwise need trickier stuff. 
+      ret = position_map[random_pos] + UR(8);
+  } 
+
+  return ret;
+  
+}
+
+// random element of a branch_mask & 4
+static u32 pos_to_insert(u32 map_len, u8* branch_mask, u32 * position_map){
+
+  u32 position_map_len = 0;
+  u32 ret = map_len;
+
+  for (u32 i = 0; i <= map_len; i++){
+    if (branch_mask[i] & _M_ADD)
+      position_map[position_map_len++] = i;
   }
 
-  return new_pos;
+  if (position_map_len){
+    ret = position_map[UR(position_map_len)];
+  }
+
+  return ret;
 }
 
 // when resuming re-increment hit bits
@@ -5758,7 +5781,7 @@ skip_simple_bitflip:
     /* Adding "O" mask if flipbyte would still reach rb */
     if (rb_fuzzing && use_branch_mask > 0)
       if (branch_is_hit(rb_fuzzing - 1))
-        branch_mask[stage_cur] = 1;
+        branch_mask[stage_cur] = _M_FLP;
 
     /* We also use this stage to pull off a simple trick: we identify
        bytes that seem to have no effect on the current execution path
@@ -5834,9 +5857,9 @@ skip_simple_bitflip:
 
       /* In fact this already mostly include the case where delete to be
          in the branch, so we don't need extra check on trim */
-      /* Adding "D" mask if delete byte still can reach rb */
+      /* Adding "Delete" mask if delete byte still can reach rb */
       if (branch_is_hit(rb_fuzzing - 1)){
-        branch_mask[stage_cur] += 2;
+        branch_mask[stage_cur] += _M_DEL;
       }
     }
 
@@ -5853,9 +5876,9 @@ skip_simple_bitflip:
 
       if (common_fuzz_stuff(argv, tmp_buf, len + 1)) goto abandon_entry;
 
-      /* add "I" mask if adding still hit rb */
+      /* add "I" mask if adding bit still hit rb */
       if (branch_is_hit(rb_fuzzing - 1)){
-        branch_mask[stage_cur] += 4;
+        branch_mask[stage_cur] += _M_ADD;
       }
 
     }
@@ -5902,14 +5925,17 @@ skip_simple_bitflip:
     if (rb_fuzzing){ //&& use_mask()){
       // only run modified case if it won't produce garbage
 
-      if (!(branch_mask[stage_cur_byte] & 1)) {
-        stage_max--;
-        continue;
-      }
+      bool skip_flag = false;
 
-      // if we're spilling into next byte, check that that byte can
-      // be modified
-      if ((stage_cur_byte != ((stage_cur + 1)>> 3))&& (!(branch_mask[stage_cur_byte + 1] & 1))){
+      /* See if branch mask let us flip curr byte */
+      if (!(branch_mask[stage_cur_byte] & _M_FLP))
+        skip_flag = true;
+
+      /* Next byte's mask should also be checked if spilled */
+      if ((stage_cur_byte != ((stage_cur + 1)>> 3))&& (!(branch_mask[stage_cur_byte + 1] & _M_FLP)))
+        skip_flag = true;
+
+      if(skip_flag){
         stage_max--;
         continue;
       }
@@ -5944,14 +5970,18 @@ skip_simple_bitflip:
 
     if (rb_fuzzing){//&& use_mask()){
       // only run modified case if it won't produce garbage
-      if (!(branch_mask[stage_cur_byte] & 1)) {
-        stage_max--;
-        continue;
-      }
 
-      // if we're spilling into next byte, check that that byte can
-      // be modified
-      if ((stage_cur_byte != ((stage_cur + 3)>> 3))&& (!(branch_mask[stage_cur_byte + 1] & 1))){
+      bool skip_flag = false;
+
+      /* See if branch mask allow flip curr byte */
+      if (!(branch_mask[stage_cur_byte] & _M_FLP))
+        skip_flag = true;
+
+      /* Next byte's mask should also be checked if spilled */
+      if ((stage_cur_byte != ((stage_cur + 3)>> 3))&& (!(branch_mask[stage_cur_byte + _M_FLP] & 1)))
+        skip_flag = true;
+
+      if(skip_flag){
         stage_max--;
         continue;
       }
@@ -6001,7 +6031,7 @@ skip_simple_bitflip:
     /* FairFuzz okToMutate */
 
     if (rb_fuzzing)
-      if (!(branch_mask[i] & 1) || !(branch_mask[i+1] & 1) )
+      if (!(branch_mask[i] & _M_FLP) || !(branch_mask[i+1] & _M_FLP) )
         skip_flag = true;
 
     if(skip_flag){
@@ -6048,8 +6078,8 @@ skip_simple_bitflip:
 
     if (rb_fuzzing){
       // skip if either byte will modify the branch
-      if (!(branch_mask[i] & 1) || !(branch_mask[i+1]& 1) ||
-            !(branch_mask[i+2]& 1) || !(branch_mask[i+3]& 1) ){
+      if (!(branch_mask[i] & _M_FLP) || !(branch_mask[i+1]& _M_FLP) ||
+            !(branch_mask[i+2]& _M_FLP) || !(branch_mask[i+3]& _M_FLP) ){
         stage_max--;
         continue;
       }
@@ -6099,7 +6129,7 @@ skip_bitflip:
     /* Fairfuzz !okToMutate */
 
     if(rb_fuzzing)
-      if(!(branch_mask[i] & 1))
+      if(!(branch_mask[i] & _M_FLP))
         skip_flag = true;
 
     /* Let's consult the effector map... */
@@ -6175,7 +6205,7 @@ skip_bitflip:
     /* Fairfuzz !okToMutate */
 
     if(rb_fuzzing)
-      if(!(branch_mask[i] & 1) || !(branch_mask[i+1] & 1))
+      if(!(branch_mask[i] & _M_FLP) || !(branch_mask[i+1] & _M_FLP))
         skip_flag = true;
 
     /* Let's consult the effector map... */
@@ -6280,8 +6310,8 @@ skip_bitflip:
     /* Fairfuzz !okToMutate */
 
     if(rb_fuzzing)
-      if(!(branch_mask[i] & 1) || !(branch_mask[i+1] & 1) ||
-         !(branch_mask[i+2] & 1) || !(branch_mask[i+3] & 1))
+      if(!(branch_mask[i] & _M_FLP) || !(branch_mask[i+1] & _M_FLP) ||
+         !(branch_mask[i+2] & _M_FLP) || !(branch_mask[i+3] & _M_FLP))
         skip_flag = true;
 
     /* Let's consult the effector map... */
@@ -6391,7 +6421,7 @@ skip_arith:
     /* Fairfuzz !okToMutate */
 
     if(rb_fuzzing)
-      if(!(branch_mask[i] & 1))
+      if(!(branch_mask[i] & _M_FLP))
         skip_flag = true;
 
     /* Let's consult the effector map... */
@@ -6453,7 +6483,7 @@ skip_arith:
     /* Fairfuzz !okToMutate */
 
     if(rb_fuzzing)
-      if(!(branch_mask[i] & 1) || !(branch_mask[i+1] & 1))
+      if(!(branch_mask[i] & _M_FLP) || !(branch_mask[i+1] & _M_FLP))
         skip_flag = true;
 
     /* Let's consult the effector map... */
@@ -6532,8 +6562,8 @@ skip_arith:
     /* Fairfuzz !okToMutate */
 
     if(rb_fuzzing)
-      if(!(branch_mask[i] & 1) || !(branch_mask[i+1] & 1) ||
-         !(branch_mask[i+2] & 1) || !(branch_mask[i+3] & 1))
+      if(!(branch_mask[i] & _M_FLP) || !(branch_mask[i+1] & _M_FLP) ||
+         !(branch_mask[i+2] & _M_FLP) || !(branch_mask[i+3] & _M_FLP))
         skip_flag = true;
 
     /* Let's consult the effector map... */
@@ -6643,7 +6673,7 @@ skip_interest:
       /* Fairfuzz !okToMutate */
       if(rb_fuzzing){
         for (int shift = 0; shift < extras[j].len; shift++){
-          if(!(branch_mask[i+shift] & 1)){
+          if(!(branch_mask[i+shift] & _M_FLP)){
             skip_flag = true;
             break;
           }
@@ -6698,7 +6728,8 @@ skip_interest:
       }
 
       /* Fairfuzz !okToMutate */
-      if (!(branch_mask[i] & 4) ){
+      /* Check if mask of current byte allows bit to be added*/
+      if (!(branch_mask[i] & _M_ADD) ){
         skip_flag = true;
       }
 
@@ -6770,7 +6801,7 @@ skip_user_extras:
       /* Fairfuzz !okToMutate */
       if(rb_fuzzing){
         for (int shift = 0; shift < a_extras[j].len; shift++){
-          if(!(branch_mask[i+shift] & 1)){
+          if(!(branch_mask[i+shift] & _M_FLP)){
             skip_flag = true;
             break;
           }
