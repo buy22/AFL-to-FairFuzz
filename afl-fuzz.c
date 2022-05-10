@@ -4892,7 +4892,7 @@ EXP_ST u8 common_fuzz_stuff(char** argv, u8* out_buf, u32 len) {
 }
 
 
-static u32 trim_case_rb(char** argv, u8* in_buf, u32 in_len, u8* out_buf) {
+static u32 trim_fairfuzz(char** argv, u8* in_buf, u32 in_len, u8* out_buf) {
   if (!rb_branch_hit) return in_len;
 
   static u8 tmp[64];
@@ -5279,10 +5279,6 @@ static u8 could_be_interest(u32 old_val, u32 new_val, u8 blen, u8 check_le) {
 
 }
 
-static u32 trim_rb(char** argv, u8* in_buf, u32 in_len, u8* out_buf) {
-  /** TODO **/
-  return 0;
-}
 
 /* Take the current entry from the queue, fuzz it for a while. This
    function is a tad too long... returns 0 if fuzzed successfully, 1 if
@@ -5522,7 +5518,7 @@ static u8 fuzz_one(char** argv) {
 
   if (rb_branch_hit && trim_for_branch) {
 
-    u32 trim_len = trim_case_rb(argv, in_buf, len, out_buf);
+    u32 trim_len = trim_fairfuzz(argv, in_buf, len, out_buf);
     if (trim_len > 0){
       len = trim_len;
       /* this is kind of an unfair time measurement because the
