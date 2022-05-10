@@ -987,8 +987,8 @@ static u32 pos_to_mutate(u32 modify_bits, u8 mod_type, u32 map_len, u8* branch_m
   return new_pos;
 }
 
-// when resuming re-increment hit bits
-static void init_hit_bits() {
+// if resume in place: load the hit_bits
+static void load_bits() {
   s32 file = -1;
   u8* path = alloc_printf("%s/branch-hits.bin", out_dir);
   file = open(path, O_RDONLY);
@@ -997,21 +997,13 @@ static void init_hit_bits() {
   close(file);
 }
 
-/* Compact trace bytes into a smaller bitmap. We effectively just drop the
-   count information here. This is called only sporadically, for some
-   new paths. */
-
-static void minimize_bits(u8* dst, u8* src) {
-
-  u32 i = 0;
-
-  while (i < MAP_SIZE) {
-
-    if (*(src++)) dst[i >> 3] |= 1 << (i & 7);
-    i++;
-
+// trim the size of the bitmap
+static void minimize_bits(u8* res, u8* src) {
+  for (u32 i=0; i < MAP_SIZE; i++) {
+    if (*(src++)) {
+      res[i >> 3] |= 1 << (i & 7);
+    }
   }
-
 }
 
 /* Append new test case to the queue. */
@@ -1020,6 +1012,7 @@ static void add_to_queue(u8* fname, u32 len, u8 passed_det) {
 
   struct queue_entry* q = ck_alloc(sizeof(struct queue_entry));
 
+  // fairfuzz implementation: add trace_mini and already fuzzed branches
   q->trace_mini = ck_alloc(MAP_SIZE >> 3);
   minimize_bits(q->trace_mini, trace_bits);
   q->fuzzed_branches = ck_alloc(MAP_SIZE >>3);
@@ -8847,7 +8840,7 @@ int main(int argc, char** argv) {
   memset(hit_bits, 0, sizeof(hit_bits));
   if (in_place_resume) {
     vanilla_afl = 0;
-    init_hit_bits();
+    load_bits();
   }
 
   setup_dirs_fds();
