@@ -70,6 +70,11 @@
 #include <sys/ioctl.h>
 #include <sys/file.h>
 
+/* Define Mask to be macro for better extenbility and readability */
+#define _M_ADD 4
+#define _M_DEL 2
+#define _M_FLP 1
+
 #if defined(__APPLE__) || defined(__FreeBSD__) || defined (__OpenBSD__)
 #  include <sys/sysctl.h>
 #endif /* __APPLE__ || __FreeBSD__ || __OpenBSD__ */
@@ -5776,7 +5781,7 @@ skip_simple_bitflip:
     /* Adding "O" mask if flipbyte would still reach rb */
     if (rb_fuzzing && use_branch_mask > 0)
       if (branch_is_hit(rb_fuzzing - 1))
-        branch_mask[stage_cur] = 1;
+        branch_mask[stage_cur] = _M_FLP;
 
     /* We also use this stage to pull off a simple trick: we identify
        bytes that seem to have no effect on the current execution path
@@ -5852,9 +5857,9 @@ skip_simple_bitflip:
 
       /* In fact this already mostly include the case where delete to be
          in the branch, so we don't need extra check on trim */
-      /* Adding "D" mask if delete byte still can reach rb */
+      /* Adding "Delete" mask if delete byte still can reach rb */
       if (branch_is_hit(rb_fuzzing - 1)){
-        branch_mask[stage_cur] += 2;
+        branch_mask[stage_cur] += _M_DEL;
       }
     }
 
@@ -5871,9 +5876,9 @@ skip_simple_bitflip:
 
       if (common_fuzz_stuff(argv, tmp_buf, len + 1)) goto abandon_entry;
 
-      /* add "I" mask if adding still hit rb */
+      /* add "I" mask if adding bit still hit rb */
       if (branch_is_hit(rb_fuzzing - 1)){
-        branch_mask[stage_cur] += 4;
+        branch_mask[stage_cur] += _M_ADD;
       }
 
     }
@@ -5920,14 +5925,17 @@ skip_simple_bitflip:
     if (rb_fuzzing){ //&& use_mask()){
       // only run modified case if it won't produce garbage
 
-      if (!(branch_mask[stage_cur_byte] & 1)) {
-        stage_max--;
-        continue;
-      }
+      bool skip_flag = false;
 
-      // if we're spilling into next byte, check that that byte can
-      // be modified
-      if ((stage_cur_byte != ((stage_cur + 1)>> 3))&& (!(branch_mask[stage_cur_byte + 1] & 1))){
+      /* See if branch mask let us flip curr byte */
+      if (!(branch_mask[stage_cur_byte] & _M_FLP))
+        skip_flag = true;
+
+      /* Next byte's mask should also be checked if spilled */
+      if ((stage_cur_byte != ((stage_cur + 1)>> 3))&& (!(branch_mask[stage_cur_byte + 1] & _M_FLP)))
+        skip_flag = true;
+
+      if(skip_flag){
         stage_max--;
         continue;
       }
@@ -5962,14 +5970,18 @@ skip_simple_bitflip:
 
     if (rb_fuzzing){//&& use_mask()){
       // only run modified case if it won't produce garbage
-      if (!(branch_mask[stage_cur_byte] & 1)) {
-        stage_max--;
-        continue;
-      }
 
-      // if we're spilling into next byte, check that that byte can
-      // be modified
-      if ((stage_cur_byte != ((stage_cur + 3)>> 3))&& (!(branch_mask[stage_cur_byte + 1] & 1))){
+      bool skip_flag = false;
+
+      /* See if branch mask allow flip curr byte */
+      if (!(branch_mask[stage_cur_byte] & _M_FLP))
+        skip_flag = true;
+
+      /* Next byte's mask should also be checked if spilled */
+      if ((stage_cur_byte != ((stage_cur + 3)>> 3))&& (!(branch_mask[stage_cur_byte + _M_FLP] & 1)))
+        skip_flag = true;
+
+      if(skip_flag){
         stage_max--;
         continue;
       }
