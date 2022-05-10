@@ -6728,7 +6728,8 @@ skip_interest:
       }
 
       /* Fairfuzz !okToMutate */
-      if (!(branch_mask[i] & _M_DEL) ){
+      /* Check if mask of current byte allows bit to be added*/
+      if (!(branch_mask[i] & _M_ADD) ){
         skip_flag = true;
       }
 
