@@ -937,8 +937,7 @@ static u32 * is_rare_hit(u8* trace_bits_mini){
 static u32 pos_to_insert(u32 map_len, u8* branch_mask, u32 * position_map){
   u32 cur_len = 0; u32 new_pos = map_len;
   for (u32 i = 0; i <= map_len; i++){
-    if (branch_mask[i] & _M_ADD)
-      position_map[position_map_len++] = i;
+    if (branch_mask[i] & _M_ADD) position_map[position_map_len++] = i;
   }
   if (cur_len) new_pos = position_map[UR(cur_len)];
   return new_pos;
