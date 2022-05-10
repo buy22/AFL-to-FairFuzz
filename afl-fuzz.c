@@ -298,11 +298,11 @@ static u8* (*post_handler)(u8* buf, u32* len);
 /* brach parameters */
 
 static u32 vanilla_afl = 1000; /* How many executions to conduct in vanilla AFL mode               */
-static u32 rb_fuzzing = 0;
+static u32 rb_branch_hit = 0;  // which branch is hit by fairfuzz
 static u32 MAX_RARE_BRANCHES = 256;
 static int rare_branch_threshold = 4;
-static u32 total_branch_tries = 0;
-static u32 successful_branch_tries = 0;
+static u32 total_branch_hit = 0;
+static u32 rare_branch_hits = 0;
 bool use_branch_mask = true;
 static int prev_cycle_branch_changed = 0;
 static int cycle_branch_changed = 0;
@@ -2951,11 +2951,15 @@ static void perform_dry_run(char** argv) {
     close(fd);
 
     res = calibrate_case(argv, q, use_mem, 0, 1);
+
+    // fairfuzz: reset this part of the queue
     ck_free(q->trace_mini);
     ck_free(q->fuzzed_branches);
     q->trace_mini = ck_alloc(MAP_SIZE >> 3);
     minimize_bits(q->trace_mini, trace_bits);
     q->fuzzed_branches = ck_alloc(MAP_SIZE >>3);
+    // done
+
     ck_free(use_mem);
 
     if (stop_soon) return;
@@ -4872,9 +4876,9 @@ EXP_ST u8 common_fuzz_stuff(char** argv, u8* out_buf, u32 len) {
 
   if (vanilla_afl) vanilla_afl--;
 
-  if (rb_fuzzing) {
-    total_branch_tries++;
-    if (branch_is_hit(rb_fuzzing - 1)) successful_branch_tries++;
+  if (rb_branch_hit) {
+    total_branch_hit++;
+    if (branch_is_hit(rb_branch_hit - 1)) rare_branch_hits++;
   }
   /* This handles FAULT_ERROR for us: */
 
@@ -4889,13 +4893,7 @@ EXP_ST u8 common_fuzz_stuff(char** argv, u8* out_buf, u32 len) {
 
 
 static u32 trim_case_rb(char** argv, u8* in_buf, u32 in_len, u8* out_buf) {
-
-  DEBUG1 ("entering RB trim, len is %i\n", in_len);
-
-  if (rb_fuzzing == 0){
-    // @RB@ this should not happen. 
-    return in_len;
-  }
+  if (!rb_branch_hit) return in_len;
 
   static u8 tmp[64];
 
@@ -4955,7 +4953,7 @@ static u32 trim_case_rb(char** argv, u8* in_buf, u32 in_len, u8* out_buf) {
       if (stop_soon || fault == FAULT_ERROR) goto abort_rb_trimming;
 
       // if successfully hit branch of interest...
-      if (branch_is_hit(rb_fuzzing - 1)) {
+      if (branch_is_hit(rb_branch_hit - 1)) {
         // (0) calclength of tail
         u32 move_tail = in_len - remove_pos - trim_avail;
         // (1) reduce length by how much was trimmed
@@ -4979,12 +4977,9 @@ static u32 trim_case_rb(char** argv, u8* in_buf, u32 in_len, u8* out_buf) {
     }
   
 abort_rb_trimming:
-  //@RM@ TODO: update later
- // bytes_trim_out += in_len;
-  DEBUG1 ("output of rb trimming has len %i\n", in_len);
   return in_len;
-
 }
+
 /* Helper to choose random block len for block operations in fuzz_one().
    Doesn't return zero, provided that max_len is > 0. */
 
@@ -5319,7 +5314,7 @@ static u8 fuzz_one(char** argv) {
   if (!vanilla_afl){
     if (prev_cycle_branch_changed && bootstrap){
       vanilla_afl = 1;
-      rb_fuzzing = 0;
+      rb_branch_hit = 0;
       if (bootstrap == 2) skip_deterministic_bootstrap = 1;
     }
   }
@@ -5383,10 +5378,10 @@ static u8 fuzz_one(char** argv) {
     } else { 
       int ii;
       for (ii = 0; min_branch_hits[ii] != 0; ii++){
-        rb_fuzzing = min_branch_hits[ii];
-        if (rb_fuzzing){
-          int byte_offset = (rb_fuzzing - 1) >> 3;
-          int bit_offset = (rb_fuzzing - 1) & 7;
+        rb_branch_hit = min_branch_hits[ii];
+        if (rb_branch_hit){
+          int byte_offset = (rb_branch_hit - 1) >> 3;
+          int bit_offset = (rb_branch_hit - 1) & 7;
 
           // skip deterministic if we have fuzzed this min branch
           if (queue_cur->fuzzed_branches[byte_offset] & (1 << (bit_offset))){
@@ -5411,9 +5406,9 @@ static u8 fuzz_one(char** argv) {
       // it's either because we fuzzed all the things in min_branch_hits
       // or because there was nothing. If there was nothing, 
       // min_branch_hits[0] should be 0 
-      if (!rb_fuzzing || (min_branch_hits[ii] == 0)){
-        rb_fuzzing = min_branch_hits[0];
-        if (!rb_fuzzing) {
+      if (!rb_branch_hit || (min_branch_hits[ii] == 0)){
+        rb_branch_hit = min_branch_hits[0];
+        if (!rb_branch_hit) {
           return 1;
         }
         DEBUG1("We fuzzed this guy already for real\n");
@@ -5437,7 +5432,7 @@ static u8 fuzz_one(char** argv) {
     //DEBUG1("\n");
 
 
-    DEBUG1("which hit branch %i (hit by %u inputs) \n", rb_fuzzing -1, hit_bits[rb_fuzzing -1]);
+    DEBUG1("which hit branch %i (hit by %u inputs) \n", rb_branch_hit -1, hit_bits[rb_branch_hit -1]);
     //ck_free(rarest_branches);
    
     }
@@ -5525,7 +5520,7 @@ static u8 fuzz_one(char** argv) {
   u32 orig_bitmap_size = queue_cur->bitmap_size;
   u64 orig_exec_us = queue_cur->exec_us;
 
-  if (rb_fuzzing && trim_for_branch) {
+  if (rb_branch_hit && trim_for_branch) {
 
     u32 trim_len = trim_case_rb(argv, in_buf, len, out_buf);
     if (trim_len > 0){
@@ -5552,7 +5547,7 @@ static u8 fuzz_one(char** argv) {
   orig_perf = perf_score = calculate_score(queue_cur);
   orig_total_execs = total_execs;
 
-  if (rb_fuzzing && trim_for_branch){
+  if (rb_branch_hit && trim_for_branch){
     /* restoring these because the changes to the test case 
      were not permanent */
     queue_cur->bitmap_size = orig_bitmap_size;
@@ -5580,14 +5575,14 @@ static u8 fuzz_one(char** argv) {
 
   
   //if (skip_deterministic || queue_cur->was_fuzzed || queue_cur->passed_det)
-  if ((!rb_fuzzing && skip_deterministic) || skip_deterministic_bootstrap || (vanilla_afl && queue_cur->was_fuzzed ) || (vanilla_afl && queue_cur->passed_det))
+  if ((!rb_branch_hit && skip_deterministic) || skip_deterministic_bootstrap || (vanilla_afl && queue_cur->was_fuzzed ) || (vanilla_afl && queue_cur->passed_det))
     goto havoc_stage;
 
   /* Skip deterministic fuzzing if exec path checksum puts this out of scope
      for this master instance. */
 
   if (master_max && (queue_cur->exec_cksum % master_max) != master_id - 1){
-    if (!rb_fuzzing) goto havoc_stage;
+    if (!rb_branch_hit) goto havoc_stage;
     else{
       fairfuzz_skip_deterministic = 1; 
       skip_simple_bitflip = 1;
@@ -5708,8 +5703,8 @@ static u8 fuzz_one(char** argv) {
   stage_cycles[STAGE_FLIP1] += stage_max;
 
 skip_simple_bitflip:
-  successful_branch_tries = 0;
-  total_branch_tries = 0;
+  rare_branch_hits = 0;
+  total_branch_hit = 0;
 
 
   /* Effector map setup. These macros calculate:
@@ -5753,8 +5748,8 @@ skip_simple_bitflip:
     if (common_fuzz_stuff(argv, out_buf, len)) goto abandon_entry;
 
     /* Adding "O" mask if flipbyte would still reach rb */
-    if (rb_fuzzing && use_branch_mask > 0)
-      if (branch_is_hit(rb_fuzzing - 1))
+    if (rb_branch_hit && use_branch_mask > 0)
+      if (branch_is_hit(rb_branch_hit - 1))
         branch_mask[stage_cur] = _M_FLP;
 
     /* We also use this stage to pull off a simple trick: we identify
@@ -5811,7 +5806,7 @@ skip_simple_bitflip:
 
 
   /* add/delete map in this stage */
-  if (rb_fuzzing && use_branch_mask > 0){
+  if (rb_branch_hit && use_branch_mask > 0){
     
     // buffer to clobber with new things
     u8* tmp_buf = ck_alloc(len+1);
@@ -5832,7 +5827,7 @@ skip_simple_bitflip:
       /* In fact this already mostly include the case where delete to be
          in the branch, so we don't need extra check on trim */
       /* Adding "Delete" mask if delete byte still can reach rb */
-      if (branch_is_hit(rb_fuzzing - 1)){
+      if (branch_is_hit(rb_branch_hit - 1)){
         branch_mask[stage_cur] += _M_DEL;
       }
     }
@@ -5851,7 +5846,7 @@ skip_simple_bitflip:
       if (common_fuzz_stuff(argv, tmp_buf, len + 1)) goto abandon_entry;
 
       /* add "I" mask if adding bit still hit rb */
-      if (branch_is_hit(rb_fuzzing - 1)){
+      if (branch_is_hit(rb_branch_hit - 1)){
         branch_mask[stage_cur] += _M_ADD;
       }
 
@@ -5862,7 +5857,7 @@ skip_simple_bitflip:
     memcpy (orig_branch_mask, branch_mask, len + 1);
   }
 
-  if (rb_fuzzing && (successful_branch_tries == 0)){
+  if (rb_branch_hit && (rare_branch_hits == 0)){
     if (blacklist_pos >= blacklist_size -1){
       DEBUG1("Increasing size of blacklist from %d to %d\n", blacklist_size, blacklist_size*2);
       blacklist_size = 2 * blacklist_size; 
@@ -5871,16 +5866,16 @@ skip_simple_bitflip:
         PFATAL("Failed to realloc blacklist");
       }
     }
-    blacklist[blacklist_pos++] = rb_fuzzing -1;
+    blacklist[blacklist_pos++] = rb_branch_hit -1;
     blacklist[blacklist_pos] = -1;
-    DEBUG1("adding branch %i to blacklist\n", rb_fuzzing-1);
+    DEBUG1("adding branch %i to blacklist\n", rb_branch_hit-1);
   }
   /* @RB@ reset stats for debugging*/
-  DEBUG1("FairFuzz while calibrating, %i of %i tries hit branch %i\n", successful_branch_tries, total_branch_tries, rb_fuzzing - 1);
+  DEBUG1("FairFuzz while calibrating, %i of %i tries hit branch %i\n", rare_branch_hits, total_branch_hit, rb_branch_hit - 1);
   DEBUG1("FairFuzz calib stage: %i new coverage in %i total execs\n", queued_discovered-orig_queued_discovered, total_execs-orig_total_execs);
   DEBUG1("FairFuzz calib stage: %i new branches in %i total execs\n", queued_with_cov-orig_queued_with_cov, total_execs-orig_total_execs);
-  successful_branch_tries = 0;
-  total_branch_tries = 0;
+  rare_branch_hits = 0;
+  total_branch_hit = 0;
 
   if (fairfuzz_skip_deterministic) goto havoc_stage;
 
@@ -5896,7 +5891,7 @@ skip_simple_bitflip:
 
     stage_cur_byte = stage_cur >> 3;
 
-    if (rb_fuzzing){ //&& use_mask()){
+    if (rb_branch_hit){ //&& use_mask()){
       // only run modified case if it won't produce garbage
 
       bool skip_flag = false;
@@ -5942,7 +5937,7 @@ skip_simple_bitflip:
 
     stage_cur_byte = stage_cur >> 3;
 
-    if (rb_fuzzing){//&& use_mask()){
+    if (rb_branch_hit){//&& use_mask()){
       // only run modified case if it won't produce garbage
 
       bool skip_flag = false;
@@ -6004,7 +5999,7 @@ skip_simple_bitflip:
 
     /* FairFuzz okToMutate */
 
-    if (rb_fuzzing)
+    if (rb_branch_hit)
       if (!(branch_mask[i] & _M_FLP) || !(branch_mask[i+1] & _M_FLP) )
         skip_flag = true;
 
@@ -6050,7 +6045,7 @@ skip_simple_bitflip:
       continue;
     }
 
-    if (rb_fuzzing){
+    if (rb_branch_hit){
       // skip if either byte will modify the branch
       if (!(branch_mask[i] & _M_FLP) || !(branch_mask[i+1]& _M_FLP) ||
             !(branch_mask[i+2]& _M_FLP) || !(branch_mask[i+3]& _M_FLP) ){
@@ -6102,7 +6097,7 @@ skip_bitflip:
 
     /* Fairfuzz !okToMutate */
 
-    if(rb_fuzzing)
+    if(rb_branch_hit)
       if(!(branch_mask[i] & _M_FLP))
         skip_flag = true;
 
@@ -6178,7 +6173,7 @@ skip_bitflip:
 
     /* Fairfuzz !okToMutate */
 
-    if(rb_fuzzing)
+    if(rb_branch_hit)
       if(!(branch_mask[i] & _M_FLP) || !(branch_mask[i+1] & _M_FLP))
         skip_flag = true;
 
@@ -6283,7 +6278,7 @@ skip_bitflip:
 
     /* Fairfuzz !okToMutate */
 
-    if(rb_fuzzing)
+    if(rb_branch_hit)
       if(!(branch_mask[i] & _M_FLP) || !(branch_mask[i+1] & _M_FLP) ||
          !(branch_mask[i+2] & _M_FLP) || !(branch_mask[i+3] & _M_FLP))
         skip_flag = true;
@@ -6394,7 +6389,7 @@ skip_arith:
 
     /* Fairfuzz !okToMutate */
 
-    if(rb_fuzzing)
+    if(rb_branch_hit)
       if(!(branch_mask[i] & _M_FLP))
         skip_flag = true;
 
@@ -6456,7 +6451,7 @@ skip_arith:
 
     /* Fairfuzz !okToMutate */
 
-    if(rb_fuzzing)
+    if(rb_branch_hit)
       if(!(branch_mask[i] & _M_FLP) || !(branch_mask[i+1] & _M_FLP))
         skip_flag = true;
 
@@ -6535,7 +6530,7 @@ skip_arith:
 
     /* Fairfuzz !okToMutate */
 
-    if(rb_fuzzing)
+    if(rb_branch_hit)
       if(!(branch_mask[i] & _M_FLP) || !(branch_mask[i+1] & _M_FLP) ||
          !(branch_mask[i+2] & _M_FLP) || !(branch_mask[i+3] & _M_FLP))
         skip_flag = true;
@@ -6645,7 +6640,7 @@ skip_interest:
       }
 
       /* Fairfuzz !okToMutate */
-      if(rb_fuzzing){
+      if(rb_branch_hit){
         for (int shift = 0; shift < extras[j].len; shift++){
           if(!(branch_mask[i+shift] & _M_FLP)){
             skip_flag = true;
@@ -6773,7 +6768,7 @@ skip_user_extras:
       }
 
       /* Fairfuzz !okToMutate */
-      if(rb_fuzzing){
+      if(rb_branch_hit){
         for (int shift = 0; shift < a_extras[j].len; shift++){
           if(!(branch_mask[i+shift] & _M_FLP)){
             skip_flag = true;
@@ -6814,8 +6809,8 @@ skip_extras:
 
   if (!queue_cur->passed_det) mark_as_det_done(queue_cur);
 
-  successful_branch_tries = 0;
-  total_branch_tries = 0;
+  rare_branch_hits = 0;
+  total_branch_hit = 0;
 
   /****************
    * RANDOM HAVOC *
@@ -7442,9 +7437,9 @@ abandon_entry:
     if (queue_cur->favored) pending_favored--;
   }
 
-  // DEBUG1("%sIn havoc stage, %i of %i tries hit branch %i\n", shadow_prefix, successful_branch_tries, total_branch_tries, rb_fuzzing - 1);
-  successful_branch_tries = 0;
-  total_branch_tries = 0;
+  // DEBUG1("%sIn havoc stage, %i of %i tries hit branch %i\n", shadow_prefix, rare_branch_hits, total_branch_hit, rb_branch_hit - 1);
+  rare_branch_hits = 0;
+  total_branch_hit = 0;
   //DEBUG1("%shavoc stage: %i new coverage in %i total execs\n", shadow_prefix, queued_discovered-orig_queued_discovered, total_execs-orig_total_execs);
   //DEBUG1("%shavoc stage: %i new branches in %i total execs\n", shadow_prefix, queued_with_cov-orig_queued_with_cov, total_execs-orig_total_execs);
   if (queued_with_cov-orig_queued_with_cov){
