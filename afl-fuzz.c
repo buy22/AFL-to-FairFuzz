@@ -995,7 +995,7 @@ static u32 pos_to_insert(u32 map_len, u8* branch_mask, u32 * position_map){
   u32 ret = map_len;
 
   for (u32 i = 0; i <= map_len; i++){
-    if (branch_mask[i] & 4)
+    if (branch_mask[i] & _M_ADD)
       position_map[position_map_len++] = i;
   }
 
@@ -6031,7 +6031,7 @@ skip_simple_bitflip:
     /* FairFuzz okToMutate */
 
     if (rb_fuzzing)
-      if (!(branch_mask[i] & 1) || !(branch_mask[i+1] & 1) )
+      if (!(branch_mask[i] & _M_FLP) || !(branch_mask[i+1] & _M_FLP) )
         skip_flag = true;
 
     if(skip_flag){
@@ -6078,8 +6078,8 @@ skip_simple_bitflip:
 
     if (rb_fuzzing){
       // skip if either byte will modify the branch
-      if (!(branch_mask[i] & 1) || !(branch_mask[i+1]& 1) ||
-            !(branch_mask[i+2]& 1) || !(branch_mask[i+3]& 1) ){
+      if (!(branch_mask[i] & _M_FLP) || !(branch_mask[i+1]& _M_FLP) ||
+            !(branch_mask[i+2]& _M_FLP) || !(branch_mask[i+3]& _M_FLP) ){
         stage_max--;
         continue;
       }
@@ -6129,7 +6129,7 @@ skip_bitflip:
     /* Fairfuzz !okToMutate */
 
     if(rb_fuzzing)
-      if(!(branch_mask[i] & 1))
+      if(!(branch_mask[i] & _M_FLP))
         skip_flag = true;
 
     /* Let's consult the effector map... */
@@ -6205,7 +6205,7 @@ skip_bitflip:
     /* Fairfuzz !okToMutate */
 
     if(rb_fuzzing)
-      if(!(branch_mask[i] & 1) || !(branch_mask[i+1] & 1))
+      if(!(branch_mask[i] & _M_FLP) || !(branch_mask[i+1] & _M_FLP))
         skip_flag = true;
 
     /* Let's consult the effector map... */
@@ -6310,8 +6310,8 @@ skip_bitflip:
     /* Fairfuzz !okToMutate */
 
     if(rb_fuzzing)
-      if(!(branch_mask[i] & 1) || !(branch_mask[i+1] & 1) ||
-         !(branch_mask[i+2] & 1) || !(branch_mask[i+3] & 1))
+      if(!(branch_mask[i] & _M_FLP) || !(branch_mask[i+1] & _M_FLP) ||
+         !(branch_mask[i+2] & _M_FLP) || !(branch_mask[i+3] & _M_FLP))
         skip_flag = true;
 
     /* Let's consult the effector map... */
@@ -6421,7 +6421,7 @@ skip_arith:
     /* Fairfuzz !okToMutate */
 
     if(rb_fuzzing)
-      if(!(branch_mask[i] & 1))
+      if(!(branch_mask[i] & _M_FLP))
         skip_flag = true;
 
     /* Let's consult the effector map... */
@@ -6483,7 +6483,7 @@ skip_arith:
     /* Fairfuzz !okToMutate */
 
     if(rb_fuzzing)
-      if(!(branch_mask[i] & 1) || !(branch_mask[i+1] & 1))
+      if(!(branch_mask[i] & _M_FLP) || !(branch_mask[i+1] & _M_FLP))
         skip_flag = true;
 
     /* Let's consult the effector map... */
@@ -6562,8 +6562,8 @@ skip_arith:
     /* Fairfuzz !okToMutate */
 
     if(rb_fuzzing)
-      if(!(branch_mask[i] & 1) || !(branch_mask[i+1] & 1) ||
-         !(branch_mask[i+2] & 1) || !(branch_mask[i+3] & 1))
+      if(!(branch_mask[i] & _M_FLP) || !(branch_mask[i+1] & _M_FLP) ||
+         !(branch_mask[i+2] & _M_FLP) || !(branch_mask[i+3] & _M_FLP))
         skip_flag = true;
 
     /* Let's consult the effector map... */
@@ -6673,7 +6673,7 @@ skip_interest:
       /* Fairfuzz !okToMutate */
       if(rb_fuzzing){
         for (int shift = 0; shift < extras[j].len; shift++){
-          if(!(branch_mask[i+shift] & 1)){
+          if(!(branch_mask[i+shift] & _M_FLP)){
             skip_flag = true;
             break;
           }
@@ -6728,7 +6728,7 @@ skip_interest:
       }
 
       /* Fairfuzz !okToMutate */
-      if (!(branch_mask[i] & 4) ){
+      if (!(branch_mask[i] & _M_DEL) ){
         skip_flag = true;
       }
 
@@ -6800,7 +6800,7 @@ skip_user_extras:
       /* Fairfuzz !okToMutate */
       if(rb_fuzzing){
         for (int shift = 0; shift < a_extras[j].len; shift++){
-          if(!(branch_mask[i+shift] & 1)){
+          if(!(branch_mask[i+shift] & _M_FLP)){
             skip_flag = true;
             break;
           }
