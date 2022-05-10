@@ -5796,7 +5796,7 @@ skip_simple_bitflip:
   stage_cycles[STAGE_FLIP8] += stage_max;
 
 
-  /* add/delete map in this stage */
+  // add/delete map in this stage
   if (rb_branch_hit && use_branch_mask > 0){
     
     // buffer to clobber with new things
