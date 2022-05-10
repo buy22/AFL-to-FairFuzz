@@ -5305,7 +5305,6 @@ static u8 fuzz_one(char** argv) {
   u8 skip_simple_bitflip = 0;
   u32 orig_queued_with_cov = queued_with_cov;
   u32 orig_queued_discovered = queued_discovered;
-  u32 orig_total_execs = total_execs;
 
   if (!vanilla_afl){
     if (prev_cycle_branch_changed && bootstrap){
@@ -5512,7 +5511,7 @@ static u8 fuzz_one(char** argv) {
 
   }
 
-  // trim from original fairfuzz
+  // fairfuzz: trim rare branches from original 
   u32 orig_bitmap_size = queue_cur->bitmap_size;
   u64 orig_exec_us = queue_cur->exec_us;
 
@@ -5521,15 +5520,12 @@ static u8 fuzz_one(char** argv) {
     u32 trim_len = trim_fairfuzz(argv, in_buf, len, out_buf);
     if (trim_len > 0){
       len = trim_len;
-      /* this is kind of an unfair time measurement because the
-         one in calibrate includes a lot of other loop stuff*/
       u64 start_time = get_cur_time_us();
       write_to_testcase(in_buf, len);
       run_target(argv, exec_tmout);
-      /* we are setting these to get a more accurate performance score */
+      
       queue_cur->exec_us = get_cur_time_us() - start_time;
       queue_cur->bitmap_size = count_bytes(trace_bits);
-
     }
 
   }
@@ -5541,11 +5537,10 @@ static u8 fuzz_one(char** argv) {
    *********************/
 
   orig_perf = perf_score = calculate_score(queue_cur);
-  orig_total_execs = total_execs;
-
+  
+  // reset the original performace parameters
+  // the trim should only be valid in the current iteration
   if (rb_branch_hit && trim_for_branch){
-    /* restoring these because the changes to the test case 
-     were not permanent */
     queue_cur->bitmap_size = orig_bitmap_size;
     queue_cur->exec_us =  orig_exec_us;
   }
@@ -5866,10 +5861,10 @@ skip_simple_bitflip:
     blacklist[blacklist_pos] = -1;
     DEBUG1("adding branch %i to blacklist\n", rb_branch_hit-1);
   }
-  /* @RB@ reset stats for debugging*/
+  // reset stats
   DEBUG1("FairFuzz while calibrating, %i of %i tries hit branch %i\n", rare_branch_hits, total_branch_hit, rb_branch_hit - 1);
-  DEBUG1("FairFuzz calib stage: %i new coverage in %i total execs\n", queued_discovered-orig_queued_discovered, total_execs-orig_total_execs);
-  DEBUG1("FairFuzz calib stage: %i new branches in %i total execs\n", queued_with_cov-orig_queued_with_cov, total_execs-orig_total_execs);
+  DEBUG1("FairFuzz calib stage: %i new coverage in %i total execs\n", queued_discovered-orig_queued_discovered, total_execs);
+  DEBUG1("FairFuzz calib stage: %i new branches in %i total execs\n", queued_with_cov-orig_queued_with_cov, total_execs);
   rare_branch_hits = 0;
   total_branch_hit = 0;
 
