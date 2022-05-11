@@ -840,6 +840,13 @@ static void mark_as_redundant(struct queue_entry* q, u8 state) {
 
 }
 
+//FairFuzz stuff
+static void count_hit_bits(){
+  for (int i = 0; i < MAP_SIZE; i++) {
+    if ((trace_bits[i] > 0) && (hit_bits[i] < ULONG_MAX))
+      hit_bits[i]++;
+  }
+}
 
 
 // returns if branch_ids have the id we need
@@ -2957,8 +2964,7 @@ static void perform_dry_run(char** argv) {
     ck_free(q->fuzzed_branches);
     q->trace_mini = ck_alloc(MAP_SIZE >> 3);
     minimize_bits(q->trace_mini, trace_bits);
-    q->fuzzed_branches = ck_alloc(MAP_SIZE >>3);
-    // done
+    q->fuzzed_branches = ck_alloc(MAP_SIZE >> 3);
 
     ck_free(use_mem);
 
@@ -3346,16 +3352,6 @@ static void write_crash_readme(void) {
 
   fclose(f);
 
-}
-
-
-/* increment hit bits by 1 for every element of trace_bits that has been hit.
- effectively counts that one input has hit each element of trace_bits */
-static void count_hit_bits(){
-  for (int i = 0; i < MAP_SIZE; i++){
-    if ((trace_bits[i] > 0) && (hit_bits[i] < ULONG_MAX))
-      hit_bits[i]++;
-  }
 }
 
 /* Check if the result of an execve() during routine fuzzing is interesting,
@@ -4708,6 +4704,74 @@ static u32 next_p2(u32 val) {
 
 } 
 
+// trim for rare branches
+static u32 trim_fairfuzz(char** argv, u8* in_buf, u32 in_len, u8* out_buf) {
+  if (!rb_branch_hit) return in_len;
+
+  static u8 tmp[64];
+
+  u8  fault = 0;
+  u32 trim_exec = 0;
+  u32 remove_len;
+  u32 len_p2;
+
+  /* Although the trimmer will be less useful when variable behavior is
+     detected, it will still work to some extent, so we don't check for
+     this. */
+
+  if (in_len < 5) return 0;
+
+  stage_name = tmp;
+
+  /* Select initial chunk len, starting with large steps. */
+
+  len_p2 = next_p2(in_len);
+
+  remove_len = MAX(len_p2 / TRIM_START_STEPS, TRIM_MIN_BYTES);
+
+  /* Continue until the number of steps gets too high or the stepover
+     gets too small. */
+
+  while (remove_len >= MAX(len_p2 / TRIM_END_STEPS, TRIM_MIN_BYTES)) {
+
+    u32 remove_pos = 0;
+    stage_cur = 0;
+    stage_max = in_len / remove_len;
+
+    while (remove_pos < in_len) {
+
+      u32 trim_avail = MIN(remove_len, in_len - remove_pos);
+
+      memcpy(out_buf, in_buf, remove_pos);
+      
+      memcpy(out_buf + remove_pos, in_buf + remove_pos + trim_avail, in_len - remove_pos - trim_avail);
+
+      fault = common_fuzz_stuff(argv, out_buf, in_len - trim_avail);
+      if (stop_soon || fault == FAULT_ERROR) goto abort_rb_trimming;
+
+      // if successfully hit branch of interest
+      if (branch_is_hit(rb_branch_hit - 1)) {
+        // calclength of tail
+        u32 move_tail = in_len - remove_pos - trim_avail;
+        // reduce length by how much was trimmed
+        in_len -= trim_avail;
+
+        // update the closest power of 2 len
+        len_p2  = next_p2(in_len);
+        memmove(in_buf + remove_pos, in_buf + remove_pos + trim_avail, 
+                move_tail);
+          
+      } else remove_pos += remove_len;
+
+      if (!(trim_exec++ % stats_update_freq)) show_stats();
+      stage_cur++;
+    }
+    remove_len >>= 1;
+  }
+  
+abort_rb_trimming:
+  return in_len;
+}
 
 /* Trim all new test cases to save cycles when doing deterministic checks. The
    trimmer uses power-of-two increments somewhere between 1/16 and 1/1024 of
@@ -4891,94 +4955,6 @@ EXP_ST u8 common_fuzz_stuff(char** argv, u8* out_buf, u32 len) {
 
 }
 
-
-static u32 trim_fairfuzz(char** argv, u8* in_buf, u32 in_len, u8* out_buf) {
-  if (!rb_branch_hit) return in_len;
-
-  static u8 tmp[64];
-
-  u8  fault = 0;
-  u32 trim_exec = 0;
-  u32 remove_len;
-  u32 len_p2;
-
-  /* Although the trimmer will be less useful when variable behavior is
-     detected, it will still work to some extent, so we don't check for
-     this. */
-
-  if (in_len < 5) return 0;
-
-  stage_name = tmp;
-  stage_short= "rbtrim";
-  // CAROTODO: what is this, update later
-  //bytes_trim_in += in_len;
-
-  /* Select initial chunk len, starting with large steps. */
-
-  len_p2 = next_p2(in_len);
-
-  // CAROTODO: could make TRIM_START_STEPS smaller   
-  remove_len = MAX(len_p2 / TRIM_START_STEPS, TRIM_MIN_BYTES);
-
-  /* Continue until the number of steps gets too high or the stepover
-     gets too small. */
-
-  while (remove_len >= MAX(len_p2 / TRIM_END_STEPS, TRIM_MIN_BYTES)) {
-
-    // why doesn't this start at 0?
-    // u32 remove_pos = remove_len;
-    u32 remove_pos = 0;
-
-    sprintf(tmp, "rb trim %s/%s", DI(remove_len), DI(remove_len));
-
-    stage_cur = 0;
-    stage_max = in_len / remove_len;
-
-    while (remove_pos < in_len) {
-
-      u32 trim_avail = MIN(remove_len, in_len - remove_pos);
-
-      //write_with_gap(in_buf, q->len, remove_pos, trim_avail);
-      // HEAD
-      memcpy(out_buf, in_buf, remove_pos);
-      // TAIL
-      memcpy(out_buf + remove_pos, in_buf + remove_pos + trim_avail, in_len - remove_pos - trim_avail);
-
-      // not actually fault...
-      /* using common fuzz stuff prevents us from having to mess with
-         permanent changes to the queue */
-      fault = common_fuzz_stuff(argv, out_buf, in_len - trim_avail);
-   
-      // Not sure if we want this given that fault is no longer a fault
-      if (stop_soon || fault == FAULT_ERROR) goto abort_rb_trimming;
-
-      // if successfully hit branch of interest...
-      if (branch_is_hit(rb_branch_hit - 1)) {
-        // (0) calclength of tail
-        u32 move_tail = in_len - remove_pos - trim_avail;
-        // (1) reduce length by how much was trimmed
-        in_len -= trim_avail;
-
-        // (2) update the closest power of 2 len
-        len_p2  = next_p2(in_len);
-        memmove(in_buf + remove_pos, in_buf + remove_pos + trim_avail, 
-                move_tail);
-          
-      } else remove_pos += remove_len;
-
-
-      if (!(trim_exec++ % stats_update_freq)) show_stats();
-      stage_cur++;
-      /* Note that we don't keep track of crashes or hangs here; maybe TODO? */
-      }
-
-
-    remove_len >>= 1;
-    }
-  
-abort_rb_trimming:
-  return in_len;
-}
 
 /* Helper to choose random block len for block operations in fuzz_one().
    Doesn't return zero, provided that max_len is > 0. */
@@ -5362,51 +5338,45 @@ static u8 fuzz_one(char** argv) {
 
 #endif /* ^IGNORE_FINDS */
 
-  /* select inputs that are crucial to rare branches */
+  // select inputs that are crucial to rare branches
   if (!vanilla_afl) {
     skip_deterministic_bootstrap = 0;
     u32 * min_branch_hits = is_rare_hit(queue_cur->trace_mini);
 
     if (min_branch_hits == NULL){
-      // not a rare hit. don't fuzz.
       return 1;
     } else { 
-      int ii;
-      for (ii = 0; min_branch_hits[ii] != 0; ii++){
-        rb_branch_hit = min_branch_hits[ii];
+      int index;
+      for (index = 0; min_branch_hits[index] != 0; index++){
+        rb_branch_hit = min_branch_hits[index];
         if (rb_branch_hit){
           int byte_offset = (rb_branch_hit - 1) >> 3;
           int bit_offset = (rb_branch_hit - 1) & 7;
 
-          // skip deterministic if we have fuzzed this min branch
+          // already fuzzed
           if (queue_cur->fuzzed_branches[byte_offset] & (1 << (bit_offset))){
-            // let's try the next one
             continue;
           } else {
             for (int k = 0; k < MAP_SIZE >> 3; k ++){
               if (queue_cur->fuzzed_branches[k] != 0){
-                DEBUG1("We fuzzed this guy already\n");
+                // already fuzzed
                 skip_simple_bitflip = 1;
                 break;
               }
             }
-            // indicate we have fuzzed this branch id
+            // already fuzzed
             queue_cur->fuzzed_branches[byte_offset] |= (1 << (bit_offset)); 
-            // chose minimum
             break;
           }
         } else break; 
       }
-      // if we got to the end of min_branch_hits...
-      // it's either because we fuzzed all the things in min_branch_hits
-      // or because there was nothing. If there was nothing, 
-      // min_branch_hits[0] should be 0 
-      if (!rb_branch_hit || (min_branch_hits[ii] == 0)){
+      // post-handling
+      if (!rb_branch_hit || (min_branch_hits[index] == 0)){
         rb_branch_hit = min_branch_hits[0];
+        // if nothing to fuzz
         if (!rb_branch_hit) {
           return 1;
         }
-        DEBUG1("We fuzzed this guy already for real\n");
         skip_simple_bitflip = 1;
         fairfuzz_skip_deterministic = 1;
       }
@@ -5415,21 +5385,6 @@ static u8 fuzz_one(char** argv) {
     if (!skip_simple_bitflip){
       cycle_branch_changed = 0; 
     }
-    //rarest_branches = get_lowest_hit_branch_ids();
-    //DEBUG1("---\ncurrent rarest branches: ");
-    //for (int k = 0; rarest_branches[k] != -1 ; k++){
-    //  DEBUG1("%i (%u) ", rarest_branches[k], hit_bits[rarest_branches[k]]);
-    //}
-    //DEBUG1("\n");
-
-    DEBUG1("Trying to fuzz input %s: \n", queue_cur->fname);
-    //for (int k = 0; k < len; k++) DEBUG1("%c", out_buf[k]);
-    //DEBUG1("\n");
-
-
-    DEBUG1("which hit branch %i (hit by %u inputs) \n", rb_branch_hit -1, hit_bits[rb_branch_hit -1]);
-    //ck_free(rarest_branches);
-   
     }
   }
 
